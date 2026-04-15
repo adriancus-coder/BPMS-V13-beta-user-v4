@@ -12,7 +12,7 @@
       <div class="brand-wrap">
         <div class="eyebrow">BPMS Operator Console</div>
         <div class="brand">Sanctuary Voice</div>
-        <div class="brand-sub">Traducere live pentru biserică, dintr-un singur centru de control pentru ecranul principal, phone view și prepared text.</div>
+        <div class="brand-sub">Traducere live pentru biserică, dintr-un singur centru de control pentru ecranul principal, phone view și Song mode.</div>
       </div>
 
       <div class="info-card soft-card sidebar-meta-card">
@@ -25,7 +25,7 @@
         <button class="nav-btn active" data-tab="dashboard" type="button">Live Control</button>
         <button class="nav-btn" data-tab="transcript" type="button">Transcript</button>
         <button class="nav-btn" data-tab="events" type="button">Events</button>
-        <button class="nav-btn" data-tab="song" type="button">Prepared Text</button>
+        <button class="nav-btn" data-tab="song" type="button">Song mode</button>
         <button class="nav-btn" data-tab="glossary" type="button">Glossary</button>
         <button class="nav-btn" data-tab="manual" type="button">Manual Push</button>
       </nav>
@@ -33,11 +33,11 @@
       <div class="sidebar-screen-links">
         <a class="screen-link-card" href="/translate" target="_blank" rel="noreferrer">
           <span class="screen-link-title">Main Screen</span>
-          <span class="screen-link-copy">Ecranul mare din sală pentru traducere live.</span>
+          <span class="screen-link-copy">Ecranul unificat pentru live translate și Song mode.</span>
         </a>
         <a class="screen-link-card" href="/song" target="_blank" rel="noreferrer">
-          <span class="screen-link-title">Prepared Text Screen</span>
-          <span class="screen-link-copy">Versiunea pentru texte pregătite și cântări.</span>
+          <span class="screen-link-title">Song Mode Screen</span>
+          <span class="screen-link-copy">Același ecran public, deschis direct în varianta pentru Song mode.</span>
         </a>
         <a class="screen-link-card" href="/participant" target="_blank" rel="noreferrer">
           <span class="screen-link-title">Participant Phone View</span>
@@ -51,7 +51,7 @@
         <div class="hero-copy-block">
           <div class="eyebrow">Unified service translation</div>
           <h1>Operator Dashboard</h1>
-          <div class="muted">Controlezi de aici fluxul live, prepared text-ul și distribuția către sală și telefon.</div>
+          <div class="muted">Controlezi de aici fluxul live, Song mode-ul și distribuția către sală și telefon.</div>
         </div>
         <div class="hero-status-grid">
           <div class="hero-status-card">
@@ -66,7 +66,7 @@
             <span class="hero-status-label">Quick screens</span>
             <div class="actions">
               <button id="openTranslateScreenBtn" class="btn btn-dark" type="button">Open main screen</button>
-              <button id="openSongScreenBtn" class="btn btn-dark" type="button">Open prepared screen</button>
+              <button id="openSongScreenBtn" class="btn btn-dark" type="button">Open song mode screen</button>
             </div>
           </div>
         </div>
@@ -197,7 +197,7 @@
                 <label>Start mode</label>
                 <select id="eventModePreset">
                   <option value="live" selected>Live Translate</option>
-                  <option value="song">Prepared Text</option>
+                  <option value="song">Song mode</option>
                 </select>
               </div>
             </div>
@@ -230,7 +230,7 @@
             </div>
 
             <div class="link-stack">
-              <label>Prepared text screen link</label>
+              <label>Song mode screen link</label>
               <div class="link-row">
                 <input id="songLink" type="text" readonly>
                 <button id="copySongBtn" class="btn btn-dark">Copy</button>
@@ -262,7 +262,7 @@
         <div class="cards-grid two song-grid">
           <div class="panel glass-panel section-stack">
             <div class="section-head">
-              <h2>Prepared Text Console</h2>
+              <h2>Song Mode Console</h2>
               <div id="songModeBadge" class="status-pill">Live</div>
             </div>
             <div id="displayModeLabel" class="muted">Ecran: Auto</div>
@@ -270,11 +270,15 @@
             <div class="button-row compact-row">
               <button id="displayAutoBtn" class="btn btn-dark" type="button">Display auto</button>
               <button id="displayManualBtn" class="btn btn-primary" type="button">Display manual</button>
+              <select id="displayThemeSelect">
+                <option value="dark" selected>White on black</option>
+                <option value="light">Black on white</option>
+              </select>
             </div>
             <label>Title</label>
             <input id="songTitle" type="text" placeholder="Amazing Grace">
-            <label>Prepared text or lyrics</label>
-            <textarea id="songText" class="song-textarea" placeholder="Paste prepared text, chorus, prayer, announcement or lyrics here."></textarea>
+            <label>Song text or prepared lyrics</label>
+            <textarea id="songText" class="song-textarea" placeholder="Paste song lyrics, chorus, prayer, announcement or prepared text here."></textarea>
             <div class="button-row">
               <button id="saveSongBtn" class="btn btn-dark">Save in library</button>
               <button id="saveGlobalSongBtn" class="btn btn-dark">Save to church library</button>
@@ -286,7 +290,7 @@
             </div>
             <div class="info-card soft-card">
               <div class="label">Display preview</div>
-              <div id="songPreview" class="song-preview">Prepared text will appear here.</div>
+              <div id="songPreview" class="song-preview">Song mode text will appear here.</div>
             </div>
             <div id="songBlocksList" class="history-list">
               <div class="muted">Use Save in library or Send live + display.</div>
@@ -308,8 +312,8 @@
             </div>
             <div id="globalSongLibraryList" class="event-list"></div>
             <div class="section-head admin-subsection-head">
-              <h2>Prepared Library</h2>
-              <div class="muted">Ready before service</div>
+              <h2>Event Song Library</h2>
+              <div class="muted">Ready before service in Song mode</div>
             </div>
             <div class="button-row compact-row">
               <input id="songLibrarySearch" type="text" placeholder="Search by title">

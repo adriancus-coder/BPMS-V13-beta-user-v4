@@ -127,8 +127,22 @@ function renderActiveEventBadge(event) {
   badge.textContent = event.isActive ? `Live: ${event.name}${extra}` : 'Another event is live';
   badge.className = event.isActive ? 'status-pill active' : 'status-pill';
   opened.textContent = `Opened: ${event.name}${extra}`;
-  $('songModeBadge').textContent = event.displayState?.mode === 'manual' ? 'Display Manual' : 'Live';
-  $('songModeBadge').className = event.displayState?.mode === 'manual' ? 'status-pill active' : 'status-pill';
+  const isSongMode = event.mode === 'song';
+  $('songModeBadge').textContent = isSongMode ? 'Song mode live' : (event.displayState?.mode === 'manual' ? 'Display Manual' : 'Live');
+  $('songModeBadge').className = (isSongMode || event.displayState?.mode === 'manual') ? 'status-pill active' : 'status-pill';
+}
+
+function refreshDisplayControls() {
+  const modeLabel = $('displayModeLabel');
+  const themeSelect = $('displayThemeSelect');
+  if (modeLabel) {
+    const modeText = currentEvent?.displayState?.mode === 'manual' ? 'Manual' : 'Auto';
+    const themeText = currentEvent?.displayState?.theme === 'light' ? 'Black on white' : 'White on black';
+    modeLabel.textContent = `Display: ${modeText} · Theme: ${themeText}`;
+  }
+  if (themeSelect) {
+    themeSelect.value = currentEvent?.displayState?.theme || 'dark';
+  }
 }
 
 function renderParticipantStats(stats = {}) {
@@ -391,7 +405,7 @@ function renderSongStateLegacy(songState) {
   const libraryCount = Array.isArray(currentEvent?.songLibrary) ? currentEvent.songLibrary.length : 0;
   const historyCount = Array.isArray(currentEvent?.songHistory) ? currentEvent.songHistory.length : 0;
   $('songCurrentIndex').textContent = `Saved: ${libraryCount} · History: ${historyCount}`;
-  $('songPreview').textContent = currentEvent?.displayState?.manualSource || 'Prepared text will appear here.';
+  $('songPreview').textContent = currentEvent?.displayState?.manualSource || 'Song mode text will appear here.';
   $('songBlocksList').innerHTML = '<div class="muted">Use Save in library or Send live + display.</div>';
 }
 
@@ -410,10 +424,10 @@ function renderSongState(songState) {
   const activeBlock = typeof songState?.activeBlock === 'string' ? songState.activeBlock : '';
 
   summaryEl.textContent = `Saved: ${libraryCount} · History: ${historyCount}`;
-  previewEl.textContent = activeBlock || currentEvent?.displayState?.manualSource || 'Prepared text will appear here.';
+  previewEl.textContent = activeBlock || currentEvent?.displayState?.manualSource || 'Song mode text will appear here.';
 
   if (!blocks.length) {
-    blocksEl.innerHTML = '<div class="muted">Use Save in library or Send live + display.</div>';
+    blocksEl.innerHTML = '<div class="muted">Use Save in library or Send first stanza live.</div>';
     return;
   }
 
@@ -603,9 +617,19 @@ async function setDisplayMode(mode) {
   const data = await res.json();
   if (!data.ok) return alert(data.error || 'Could not change display mode.');
   currentEvent.displayState = data.displayState || currentEvent.displayState;
-  $('displayModeLabel').textContent = currentEvent.displayState?.mode === 'manual' ? 'Display: Manual' : 'Display: Auto';
+  refreshDisplayControls();
   renderActiveEventBadge(currentEvent);
   setStatus(mode === 'manual' ? 'Display switched to manual.' : 'Display switched to auto.');
+}
+
+async function setDisplayTheme(theme) {
+  if (!currentEvent) return;
+  const res = await fetch(`/api/events/${currentEvent.id}/display/theme`, adminJsonOptions('POST', { theme }));
+  const data = await res.json();
+  if (!data.ok) return alert(data.error || 'Could not change display theme.');
+  currentEvent.displayState = data.displayState || currentEvent.displayState;
+  refreshDisplayControls();
+  setStatus(theme === 'light' ? 'Display theme set to black on white.' : 'Display theme set to white on black.');
 }
 
 async function openEventById(eventId) {
@@ -623,7 +647,7 @@ async function openEventById(eventId) {
   fillGlossaryLangs(currentEvent.targetLangs || []);
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
-  $('displayModeLabel').textContent = currentEvent.displayState?.mode === 'manual' ? 'Display: Manual' : 'Display: Auto';
+  refreshDisplayControls();
   renderSongHistory(currentEvent.songHistory || []);
   await loadSongLibrary();
   await loadGlobalSongLibrary();
@@ -653,7 +677,7 @@ async function createEvent() {
   fillGlossaryLangs(currentEvent.targetLangs || []);
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
-  $('displayModeLabel').textContent = currentEvent.displayState?.mode === 'manual' ? 'Display: Manual' : 'Display: Auto';
+  refreshDisplayControls();
   renderSongHistory(currentEvent.songHistory || []);
   await loadSongLibrary();
   await loadGlobalSongLibrary();
@@ -943,7 +967,7 @@ socket.on('joined_event', ({ event, role }) => {
   fillGlossaryLangs(currentEvent.targetLangs || []);
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
-  $('displayModeLabel').textContent = currentEvent.displayState?.mode === 'manual' ? 'Display: Manual' : 'Display: Auto';
+  refreshDisplayControls();
   renderSongHistory(event.songHistory || []);
   loadSongLibrary();
   loadGlobalSongLibrary();
@@ -1001,8 +1025,14 @@ socket.on('display_mode_changed', ({ mode }) => {
   if (!currentEvent) return;
   currentEvent.displayState = currentEvent.displayState || {};
   currentEvent.displayState.mode = mode;
-  $('displayModeLabel').textContent = mode === 'manual' ? 'Display: Manual' : 'Display: Auto';
+  refreshDisplayControls();
   renderActiveEventBadge(currentEvent);
+});
+socket.on('display_theme_changed', ({ theme }) => {
+  if (!currentEvent) return;
+  currentEvent.displayState = currentEvent.displayState || {};
+  currentEvent.displayState.theme = theme || 'dark';
+  refreshDisplayControls();
 });
 socket.on('song_history_updated', ({ songHistory }) => {
   if (!currentEvent) return;
@@ -1089,6 +1119,7 @@ $('songPrevBtn').addEventListener('click', goToPrevSongBlock);
 $('songNextBtn').addEventListener('click', goToNextSongBlock);
 $('displayAutoBtn').addEventListener('click', () => setDisplayMode('auto'));
 $('displayManualBtn').addEventListener('click', () => setDisplayMode('manual'));
+$('displayThemeSelect').addEventListener('change', () => setDisplayTheme($('displayThemeSelect').value));
 $('songLibrarySearch').addEventListener('input', () => renderSongLibrary(currentEvent?.songLibrary || []));
 $('songLibrarySort').addEventListener('change', () => renderSongLibrary(currentEvent?.songLibrary || []));
 $('globalSongLibrarySearch').addEventListener('input', () => renderGlobalSongLibrary(currentGlobalSongLibrary));

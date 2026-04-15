@@ -3,26 +3,36 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>BPMS Song Screen</title>
+  <title>BPMS Song Mode Screen</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
-<body class="display-body song-body">
-  <main class="song-screen-wrap">
-    <div class="song-screen-top">
-      <div>
-        <div class="eyebrow">Prepared Text Screen</div>
-        <div id="songScreenTitle" class="song-screen-title">Song Screen</div>
+<body class="display-body display-theme-dark">
+  <main class="participant-shell participant-shell-v2 unified-display-shell">
+    <section class="participant-header panel glass-panel participant-hero-v2 unified-display-top" id="displayChrome">
+      <div class="eyebrow">Song Mode Screen</div>
+      <h1 id="translateEventName">Connecting...</h1>
+      <div id="translateStatus" class="muted">Connecting to live event...</div>
+      <div class="participant-controls unified-display-controls">
+        <div>
+          <label for="translateLanguage">Screen language</label>
+          <select id="translateLanguage"></select>
+        </div>
+        <div class="button-row compact-row participant-audio-actions">
+          <button id="fullscreenBtn" class="btn btn-primary" type="button">Full screen</button>
+        </div>
+        <div>
+          <div class="small">Mode: <span id="translateModeBadge">Song mode</span></div>
+          <div class="small">Language: <span id="translateLanguageLabel">-</span></div>
+        </div>
       </div>
-      <div class="display-controls display-controls-v2">
-        <label class="display-select-label" for="songLanguageSelect">Language</label>
-        <select id="songLanguageSelect"></select>
-      </div>
-    </div>
-    <div class="song-stage">
-      <div id="songOnlyTranslation" class="song-only-translation">Waiting for song translation...</div>
-    </div>
+    </section>
+
+    <section id="translateTextWrap" class="participant-live panel glass-panel unified-display-live">
+      <div class="label" id="translateScreenLabel">Song mode</div>
+      <div id="translateText" class="participant-main-text unified-display-text">Waiting for song translation...</div>
+    </section>
   </main>
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/song.js"></script>
+  <script src="/translate.js"></script>
 </body>
 </html>

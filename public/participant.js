@@ -46,6 +46,8 @@ const state = {
   fixedEventId: new URLSearchParams(window.location.search).get('event') || '',
   currentEvent: null,
   currentLanguage: 'no',
+  currentMode: 'live',
+  currentSongState: null,
   lastLiveEntryId: null,
   lastSpokenEntryId: null,
   localAudioEnabled: true,
@@ -143,7 +145,9 @@ function updateTopMeta() {
   $('participantEventName').textContent = state.currentEvent.name || 'Live event';
   const sourceName = langLabel(state.currentEvent.sourceLang || 'ro');
   const targetName = langLabel(state.currentLanguage);
-  $('participantEventMeta').textContent = `Input: ${sourceName} · Translation: ${targetName}`;
+  $('participantEventMeta').textContent = state.currentMode === 'song'
+    ? `Song mode · Translation: ${targetName}`
+    : `Input: ${sourceName} · Translation: ${targetName}`;
 }
 
 function stopSpeech() {
@@ -176,6 +180,10 @@ function speakLatestEntry(entry) {
 }
 
 function renderHistory() {
+  if (state.currentMode === 'song') {
+    $('history').innerHTML = '<div class="muted">Song mode active.</div>';
+    return;
+  }
   const entries = getHistoryEntries();
   $('history').innerHTML = entries.length
     ? entries.map((entry) => `<div class="history-item"><div class="history-text">${escapeHtml(getTextForEntry(entry))}</div></div>`).join('')
@@ -184,6 +192,15 @@ function renderHistory() {
 
 function renderLiveView({ announce = false } = {}) {
   if (!state.currentEvent) return;
+  if (state.currentMode === 'song' && state.currentSongState) {
+    const songText = state.currentSongState.translations?.[state.currentLanguage]
+      || state.currentSongState.activeBlock
+      || 'Waiting for song translation...';
+    $('lastText').textContent = songText;
+    renderHistory();
+    updateTopMeta();
+    return;
+  }
   const latestEntry = getLatestEntry();
   state.lastLiveEntryId = latestEntry?.id || null;
   $('lastText').textContent = latestEntry ? getTextForEntry(latestEntry) : 'Waiting for translation...';
@@ -244,6 +261,8 @@ socket.on('join_error', ({ message }) => setStatus(message || 'Cannot join event
 socket.on('joined_event', ({ event, role }) => {
   if (role !== 'participant') return;
   state.currentEvent = event;
+  state.currentMode = event.mode || 'live';
+  state.currentSongState = event.songState || null;
   state.serverAudioMuted = !!event.audioMuted;
   syncLanguageOptions(event);
   renderLiveView({ announce: false });
@@ -288,7 +307,25 @@ socket.on('active_event_changed', async () => {
 });
 
 socket.on('mode_changed', ({ mode }) => {
-  if (mode === 'song') setStatus('Song mode active on public screen.');
+  state.currentMode = mode || 'live';
+  if (mode === 'song') {
+    setStatus('Song mode active on public screen.');
+  } else {
+    setStatus(state.serverAudioMuted ? 'Audio stopped by admin.' : 'Connected.');
+  }
+  renderLiveView({ announce: false });
+});
+
+socket.on('song_state', (songState) => {
+  state.currentMode = 'song';
+  state.currentSongState = songState;
+  renderLiveView({ announce: false });
+});
+
+socket.on('song_clear', () => {
+  state.currentMode = 'live';
+  state.currentSongState = null;
+  renderLiveView({ announce: false });
 });
 
 $('languageSelect').addEventListener('change', handleLanguageChange);

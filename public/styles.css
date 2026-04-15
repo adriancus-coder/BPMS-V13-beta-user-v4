@@ -672,6 +672,14 @@ progress::-moz-progress-bar {
   color: #f9fafb;
 }
 
+.display-theme-light {
+  background:
+    radial-gradient(circle at top left, rgba(200, 138, 43, 0.12), transparent 24%),
+    radial-gradient(circle at bottom right, rgba(15, 118, 110, 0.08), transparent 28%),
+    linear-gradient(180deg, #fffdf8, #f7f0e8 100%);
+  color: #18202b;
+}
+
 .display-single-wrap,
 .song-screen-wrap {
   min-height: 100vh;
@@ -718,6 +726,25 @@ progress::-moz-progress-bar {
   box-shadow: 0 30px 70px rgba(0, 0, 0, 0.35);
 }
 
+.display-theme-light .unified-display-top,
+.display-theme-light .display-single-top,
+.display-theme-light .song-screen-top {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(24, 32, 43, 0.08);
+  box-shadow: 0 24px 50px rgba(105, 82, 57, 0.12);
+}
+
+.display-theme-light .unified-display-live,
+.display-theme-light .display-single-panel,
+.display-theme-light .song-stage {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(251, 247, 240, 0.96)),
+    radial-gradient(circle at top right, rgba(200, 138, 43, 0.12), transparent 30%),
+    radial-gradient(circle at bottom left, rgba(15, 118, 110, 0.1), transparent 30%);
+  border-color: rgba(24, 32, 43, 0.08);
+  box-shadow: 0 24px 50px rgba(105, 82, 57, 0.14);
+}
+
 .display-single-text,
 .song-only-translation {
   width: min(100%, 1500px);
@@ -728,6 +755,45 @@ progress::-moz-progress-bar {
   letter-spacing: -0.04em;
   color: #f9fafb;
   text-wrap: balance;
+}
+
+.unified-display-shell {
+  max-width: 100%;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.unified-display-top,
+.unified-display-live {
+  width: 100%;
+}
+
+.unified-display-controls {
+  grid-template-columns: minmax(220px, 1fr) auto minmax(220px, 1fr);
+  align-items: end;
+}
+
+.unified-display-live {
+  min-height: calc(100vh - 230px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.unified-display-text {
+  width: min(100%, 1700px);
+  align-self: center;
+  text-align: center;
+  font-size: clamp(2.6rem, 6vw, 6.8rem);
+  line-height: 1.08;
+  white-space: pre-wrap;
+  text-wrap: balance;
+}
+
+.display-theme-light .display-single-text,
+.display-theme-light .song-only-translation,
+.display-theme-light .unified-display-text {
+  color: #18202b;
 }
 
 .display-single-text {
@@ -745,6 +811,17 @@ progress::-moz-progress-bar {
   color: rgba(249, 250, 251, 0.74);
 }
 
+.display-theme-light .display-select-label,
+.display-theme-light .participant-top-status .small,
+.display-theme-light .participant-top-field label,
+.display-theme-light .display-controls label,
+.display-theme-light .unified-display-top .muted,
+.display-theme-light .unified-display-top .small,
+.display-theme-light .unified-display-top .eyebrow,
+.display-theme-light .unified-display-live .label {
+  color: rgba(24, 32, 43, 0.74);
+}
+
 .display-single-wrap select,
 .song-screen-wrap select {
   background: rgba(255, 255, 255, 0.08);
@@ -752,9 +829,33 @@ progress::-moz-progress-bar {
   color: #f9fafb;
 }
 
+.display-theme-light .display-single-wrap select,
+.display-theme-light .song-screen-wrap select,
+.display-theme-light .unified-display-shell select {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(24, 32, 43, 0.14);
+  color: #18202b;
+}
+
 .status {
   font-family: "Fraunces", serif;
   font-size: 1.7rem;
+}
+
+.display-fullscreen #displayChrome {
+  display: none;
+}
+
+.display-fullscreen .unified-display-shell {
+  padding: 0;
+}
+
+.display-fullscreen .unified-display-live {
+  min-height: 100vh;
+  border-radius: 0;
+  border: 0;
+  box-shadow: none;
+  padding: clamp(24px, 5vw, 64px);
 }
 
 @media (max-width: 1180px) {
@@ -774,7 +875,8 @@ progress::-moz-progress-bar {
   .split-2,
   .hero-status-grid,
   .display-top-grid,
-  .song-screen-top {
+  .song-screen-top,
+  .unified-display-controls {
     grid-template-columns: 1fr;
   }
 
@@ -789,7 +891,8 @@ progress::-moz-progress-bar {
   .app-shell,
   .participant-shell,
   .display-single-wrap,
-  .song-screen-wrap {
+  .song-screen-wrap,
+  .unified-display-shell {
     padding: 14px;
   }
 
@@ -802,12 +905,15 @@ progress::-moz-progress-bar {
   .display-single-top,
   .display-single-panel,
   .song-stage,
-  .song-screen-top {
+  .song-screen-top,
+  .unified-display-top,
+  .unified-display-live {
     padding: 18px;
   }
 
   .display-single-text,
-  .song-only-translation {
+  .song-only-translation,
+  .unified-display-text {
     font-size: clamp(2rem, 10vw, 3.5rem);
   }
 

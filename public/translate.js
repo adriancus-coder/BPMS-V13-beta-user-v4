@@ -2,13 +2,16 @@ const socket = io();
 const $ = (id) => document.getElementById(id);
 let availableLanguages = {};
 
+const params = new URLSearchParams(window.location.search);
 const state = {
-  fixedEventId: new URLSearchParams(window.location.search).get('event') || '',
+  fixedEventId: params.get('event') || '',
   currentEvent: null,
-  currentLanguage: new URLSearchParams(window.location.search).get('lang') || 'no',
+  currentLanguage: params.get('lang') || 'no',
   currentDisplayMode: 'auto',
+  currentTheme: 'dark',
   manualTranslations: {},
-  latestLiveEntry: null
+  latestLiveEntry: null,
+  songState: null
 };
 
 function langLabel(code) {
@@ -25,20 +28,9 @@ function detectPreferredSupportedLanguage(available = []) {
   for (const raw of candidates) {
     const code = String(raw).toLowerCase();
     if ((code.startsWith('nb') || code.startsWith('nn') || code.startsWith('no')) && available.includes('no')) return 'no';
-    if (code.startsWith('ro') && available.includes('ro')) return 'ro';
-    if (code.startsWith('ru') && available.includes('ru')) return 'ru';
-    if (code.startsWith('uk') && available.includes('uk')) return 'uk';
-    if (code.startsWith('en') && available.includes('en')) return 'en';
-    if (code.startsWith('es') && available.includes('es')) return 'es';
-    if (code.startsWith('fr') && available.includes('fr')) return 'fr';
-    if (code.startsWith('de') && available.includes('de')) return 'de';
-    if (code.startsWith('it') && available.includes('it')) return 'it';
-    if (code.startsWith('pt') && available.includes('pt')) return 'pt';
-    if (code.startsWith('pl') && available.includes('pl')) return 'pl';
-    if (code.startsWith('tr') && available.includes('tr')) return 'tr';
-    if (code.startsWith('ar') && available.includes('ar')) return 'ar';
-    if (code.startsWith('fa') && available.includes('fa')) return 'fa';
-    if (code.startsWith('hu') && available.includes('hu')) return 'hu';
+    for (const short of available) {
+      if (code.startsWith(short)) return short;
+    }
   }
   return available[0] || 'en';
 }
@@ -56,22 +48,34 @@ function syncLanguageOptions(event) {
   select.value = state.currentLanguage;
 }
 
+function applyDisplayTheme(theme) {
+  document.body.classList.remove('display-theme-dark', 'display-theme-light');
+  document.body.classList.add(theme === 'light' ? 'display-theme-light' : 'display-theme-dark');
+}
+
 function getTextToDisplay() {
+  if (state.currentEvent?.mode === 'song' && state.songState) {
+    return state.songState.translations?.[state.currentLanguage]
+      || state.songState.activeBlock
+      || 'Waiting for song translation...';
+  }
   if (state.currentDisplayMode === 'manual') {
-    return state.manualTranslations?.[state.currentLanguage] || 'Aștept textul manual...';
+    return state.manualTranslations?.[state.currentLanguage] || 'Astept textul manual...';
   }
   if (state.latestLiveEntry) {
     return state.latestLiveEntry.translations?.[state.currentLanguage]
       || state.latestLiveEntry.original
-      || 'Aștept traducerea...';
+      || 'Waiting for translation...';
   }
-  return 'Aștept traducerea...';
+  return 'Waiting for translation...';
 }
 
 function updateMeta() {
-  $('translateModeBadge').textContent = state.currentDisplayMode === 'manual' ? 'Manual' : 'Auto';
+  const isSongMode = state.currentEvent?.mode === 'song';
+  $('translateModeBadge').textContent = isSongMode ? 'Song mode' : (state.currentDisplayMode === 'manual' ? 'Manual' : 'Auto');
   $('translateLanguageLabel').textContent = langLabel(state.currentLanguage);
-  $('translateEventName').textContent = state.currentEvent?.name || 'BPMS Translate';
+  $('translateEventName').textContent = state.currentEvent?.name || 'BPMS Main Screen';
+  $('translateScreenLabel').textContent = isSongMode ? 'Song mode' : 'Live translation';
 }
 
 function autoFitText() {
@@ -92,6 +96,7 @@ function autoFitText() {
 function renderDisplay() {
   $('translateText').textContent = getTextToDisplay();
   updateMeta();
+  applyDisplayTheme(state.currentTheme);
   requestAnimationFrame(autoFitText);
 }
 
@@ -118,7 +123,7 @@ async function resolveEventId() {
 async function joinEvent() {
   const eventId = await resolveEventId();
   if (!eventId) {
-    setStatus('Nu există eveniment activ.');
+    setStatus('Nu exista eveniment activ.');
     return;
   }
 
@@ -142,40 +147,60 @@ function handleLanguageChange() {
 }
 
 socket.on('connect', async () => {
-  setStatus('Conectare...');
+  setStatus('Connecting...');
   await joinEvent();
 });
 
-socket.on('disconnect', () => setStatus('Reconectare...'));
+socket.on('disconnect', () => setStatus('Reconnecting...'));
 
 socket.on('joined_event', ({ event, languageNames }) => {
   if (languageNames) availableLanguages = languageNames;
   state.currentEvent = event;
   state.currentDisplayMode = event.displayState?.mode || 'auto';
+  state.currentTheme = event.displayState?.theme || 'dark';
   state.manualTranslations = event.displayState?.manualTranslations || {};
+  state.songState = event.songState || null;
   state.latestLiveEntry = (event.transcripts || [])
     .slice()
     .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0))
     .pop() || null;
   syncLanguageOptions(event);
   renderDisplay();
-  setStatus('Conectat.');
+  setStatus('Connected.');
+});
+
+socket.on('mode_changed', ({ mode }) => {
+  if (!state.currentEvent) return;
+  state.currentEvent.mode = mode || 'live';
+  renderDisplay();
+});
+
+socket.on('song_state', (songState) => {
+  state.songState = songState;
+  if (state.currentEvent) state.currentEvent.mode = 'song';
+  renderDisplay();
+});
+
+socket.on('song_clear', () => {
+  state.songState = null;
+  if (state.currentEvent) state.currentEvent.mode = 'live';
+  renderDisplay();
 });
 
 socket.on('transcript_entry', (entry) => {
-  if (state.currentDisplayMode !== 'auto') return;
+  if (state.currentEvent?.mode === 'song' || state.currentDisplayMode !== 'auto') return;
   state.latestLiveEntry = entry;
   renderDisplay();
 });
 
 socket.on('display_live_entry', (entry) => {
-  if (state.currentDisplayMode !== 'auto') return;
+  if (state.currentEvent?.mode === 'song' || state.currentDisplayMode !== 'auto') return;
   state.latestLiveEntry = entry;
   renderDisplay();
 });
 
 socket.on('transcript_source_updated', (payload) => {
-  if (state.currentDisplayMode !== 'auto') return;
+  if (state.currentEvent?.mode === 'song' || state.currentDisplayMode !== 'auto') return;
   if (!state.latestLiveEntry || state.latestLiveEntry.id !== payload.entryId) return;
   state.latestLiveEntry = {
     ...state.latestLiveEntry,
@@ -186,9 +211,15 @@ socket.on('transcript_source_updated', (payload) => {
   renderDisplay();
 });
 
-socket.on('display_mode_changed', ({ mode, manualTranslations }) => {
+socket.on('display_mode_changed', ({ mode, theme, manualTranslations }) => {
   state.currentDisplayMode = mode || 'auto';
+  state.currentTheme = theme || state.currentTheme || 'dark';
   state.manualTranslations = manualTranslations || state.manualTranslations || {};
+  renderDisplay();
+});
+
+socket.on('display_theme_changed', ({ theme }) => {
+  state.currentTheme = theme || 'dark';
   renderDisplay();
 });
 
@@ -205,7 +236,10 @@ socket.on('active_event_changed', async () => {
 $('translateLanguage')?.addEventListener('change', handleLanguageChange);
 $('fullscreenBtn')?.addEventListener('click', enterFullscreen);
 window.addEventListener('resize', autoFitText);
-document.addEventListener('fullscreenchange', autoFitText);
+document.addEventListener('fullscreenchange', () => {
+  document.body.classList.toggle('display-fullscreen', !!document.fullscreenElement);
+  autoFitText();
+});
 
 window.addEventListener('load', async () => {
   try {
