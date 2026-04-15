@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BPMS Admin V4</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="container admin-shell">
+    <div class="panel hero-panel">
+      <div>
+        <div class="eyebrow">BPMS Beta User V4</div>
+        <div class="header-logo">Admin</div>
+        <div class="small">Live translate, song mode, display unic și bibliotecă de cântări.</div>
+      </div>
+      <div class="hero-right">
+        <div id="activeEventBadge" class="status-pill">Niciun eveniment activ</div>
+        <div id="openedEventBadge" class="small">Niciun eveniment deschis</div>
+      </div>
+    </div>
+
+    <div class="panel tab-bar">
+      <button class="tab-btn active" data-tab="live" type="button">Live</button>
+      <button class="tab-btn" data-tab="transcript" type="button">Transcriere</button>
+      <button class="tab-btn" data-tab="events" type="button">Evenimente</button>
+      <button class="tab-btn" data-tab="song" type="button">Song mode</button>
+      <button class="tab-btn" data-tab="glossary" type="button">Glosar</button>
+      <button class="tab-btn" data-tab="manual" type="button">Text manual</button>
+    </div>
+
+    <div id="tab-live" class="tab-panel active">
+      <div class="grid grid-2-equal">
+        <div class="panel stack-gap">
+          <div class="row space-between"><h3 class="section-title">Audio și live</h3><div id="onAirBadge" class="status-pill">Off-Air</div></div>
+          <label>Mod traducere</label>
+          <select id="speed"><option value="rapid">Rapid</option><option value="balanced" selected>Echilibrat</option><option value="clear">Clar</option></select>
+          <label>Sursă audio</label><select id="audioInput"></select>
+          <div class="small">Semnal intrare</div><progress id="audioLevel" value="0" max="100" style="width:100%"></progress>
+          <div class="small">Volum intrare</div><input id="inputGainRange" class="range" type="range" min="0" max="400" value="100"><div id="inputGainLabel" class="status">100%</div>
+          <label class="monitor-label"><input type="checkbox" id="monitorAudioBox"> Monitorizează audio în PC</label>
+          <div class="small">Volum monitor</div><input id="monitorGainRange" class="range" type="range" min="0" max="400" value="0"><div id="monitorGainLabel" class="small">0%</div>
+          <div class="btn-stack"><button id="startRecognitionBtn" class="btn-green big">Start traducere</button><button id="stopRecognitionBtn" class="btn-dark big">Stop</button></div>
+          <div id="recognitionStatus" class="status">Nepornit</div>
+          <div class="audio-control-block">
+            <div class="small">Audio participanți</div>
+            <button id="muteGlobalBtn" class="btn-dark big">Mute global</button>
+            <button id="panicBtn" class="btn-red big">Stop audio</button>
+            <div class="small">Volum general</div>
+            <input id="volumeRange" class="range" type="range" min="0" max="100" value="70">
+            <div id="audioStateLabel" class="status">Audio global activ.</div>
+          </div>
+        </div>
+        <div class="panel stack-gap">
+          <h3 class="section-title">Status live</h3>
+          <div class="panel"><div class="small">Ascult...</div><div id="partialTranscript" class="partial-box">Aștept propoziția completă...</div></div>
+          <div class="btn-row-wrap">
+            <button id="openTranscriptTabBtn" class="btn-dark">Deschide Transcriere</button>
+            <button id="setLiveModeBtn" class="btn-blue">Setează Live mode</button>
+          </div>
+          <div class="panel stack-gap">
+            <h3 class="section-title">Linkuri display</h3>
+            <label>Participant</label>
+            <div class="link-row"><input id="participantLink" type="text" readonly><button id="copyParticipantBtn" class="btn-dark">Copy</button></div>
+            <label>Display live / song</label>
+            <div class="link-row"><input id="displayLink" type="text" readonly><button id="copyDisplayBtn" class="btn-dark">Copy</button></div>
+            <img id="qrImage" class="qr" alt="QR code">
+          </div>
+          <div class="panel stack-gap">
+            <h3 class="section-title">Participanți live</h3>
+            <div id="participantStatsSummary" class="last-highlight compact-last">0 participanți unici</div>
+            <div id="participantStatsList" class="history compact-history"><div class="small">Niciun participant conectat.</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-transcript" class="tab-panel"><div class="panel stack-gap"><div class="row space-between"><h3 class="section-title">Transcriere și traduceri live</h3><button id="jumpLiveBtn" class="btn-dark">Sari la live</button></div><div id="transcriptList" class="transcript-list"></div></div></div>
+
+    <div id="tab-events" class="tab-panel">
+      <div class="grid grid-2-equal">
+        <div class="panel stack-gap">
+          <h3 class="section-title">Eveniment nou</h3>
+          <label>Nume eveniment</label><input id="eventName" type="text" placeholder="Serviciu duminică 11:00">
+          <div class="two-col"><div><label>Data</label><input id="eventDate" type="date"></div><div><label>Ora</label><input id="eventTime" type="time"></div></div>
+          <div class="two-col"><div><label>Limba de intrare</label><select id="sourceLang"><option value="ro" selected>Română</option><option value="no">Norvegiană</option></select></div></div>
+          <label>Limbi pentru participanți și display</label>
+          <div class="checkbox-list compact-checks" id="languageChecks"></div>
+          <button id="createEventBtn" class="btn-green big">Creează eveniment</button>
+        </div>
+        <div class="panel stack-gap">
+          <h3 class="section-title">Acces și control</h3>
+          <div class="small">Cod Admin</div><div id="adminCode" class="codes">-</div>
+          <div class="btn-row-wrap"><button id="setActiveEventBtn" class="btn-dark">Pune live</button><button id="refreshEventsBtn" class="btn-blue">Refresh</button></div>
+          <div id="eventList" class="event-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-song" class="tab-panel">
+      <div class="grid grid-2-equal">
+        <div class="panel stack-gap">
+          <div class="row space-between"><h3 class="section-title">Pregătire cântări</h3><button id="setSongModeBtn" class="btn-blue">Setează Song mode</button></div>
+          <label>Titlu cântare</label><input id="songTitle" type="text" placeholder="Titlu cântare">
+          <label>Text cântare</label><textarea id="songText" placeholder="Pune textul. Separă strofele prin rând gol."></textarea>
+          <label><input id="saveSongToLibrary" type="checkbox" checked> Salvează în bibliotecă</label>
+          <div class="btn-row-wrap"><button id="loadSongBtn" class="btn-green">Încarcă și traduce</button><button id="clearSongBtn" class="btn-dark">Clear song</button></div>
+          <div class="btn-row-wrap"><button id="songPrevBtn" class="btn-dark">Prev</button><button id="songNextBtn" class="btn-blue">Next</button></div>
+          <div id="songStatus" class="status">Nicio cântare încărcată.</div>
+        </div>
+        <div class="panel stack-gap">
+          <h3 class="section-title">Bibliotecă</h3>
+          <div id="songLibraryList" class="event-list"></div>
+          <h3 class="section-title">Istoric song mode</h3>
+          <div id="songHistoryList" class="history"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-glossary" class="tab-panel"><div class="panel stack-gap"><h3 class="section-title">Glosar și corecții</h3><label>Tip</label><select id="glossaryMode"><option value="translation" selected>Traducere</option><option value="source">Corecție recunoaștere</option></select><div id="translationGlossaryFields" class="stack-gap"><div class="two-col"><div><label>Se aplică pentru limba</label><select id="glossaryLang"></select></div><div><label><input id="glossaryPermanent" type="checkbox" checked> Salvează permanent</label></div></div><input id="glossarySource" type="text" placeholder="cuvânt original sau expresie"><input id="glossaryTarget" type="text" placeholder="formă corectă în limba țintă"><button id="saveGlossaryBtn" class="btn-dark">Salvează traducere</button></div><div id="sourceCorrectionFields" class="stack-gap" style="display:none"><label><input id="sourceCorrectionPermanent" type="checkbox" checked> Salvează permanent</label><input id="sourceWrong" type="text" placeholder="forma auzită greșit"><input id="sourceCorrect" type="text" placeholder="forma corectă în română"><button id="saveSourceCorrectionBtn" class="btn-dark">Salvează corecție recunoaștere</button></div></div></div>
+
+    <div id="tab-manual" class="tab-panel"><div class="panel stack-gap"><h3 class="section-title">Text manual</h3><label>Trimite direct o propoziție</label><textarea id="manualText" placeholder="Scrie textul aici"></textarea><div class="small">Apasă Enter de două ori rapid ca să trimiți direct textul la traducere.</div><button id="sendManualBtn" class="btn-blue">Trimite text</button></div></div>
+  </div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
