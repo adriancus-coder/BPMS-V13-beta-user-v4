@@ -112,68 +112,6 @@ function filterAndSortLibrary(items = [], searchId, sortId) {
     });
 }
 
-function getPresetBackgroundCss(preset, theme) {
-  const overlay = theme === 'light'
-    ? 'linear-gradient(rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0.38))'
-    : 'linear-gradient(rgba(8, 12, 20, 0.34), rgba(8, 12, 20, 0.34))';
-  if (preset === 'warm') {
-    return `${overlay}, radial-gradient(circle at top, rgba(200, 138, 43, 0.30), transparent 32%), radial-gradient(circle at bottom, rgba(15, 118, 110, 0.18), transparent 38%), linear-gradient(180deg, #241b14, #080b12)`;
-  }
-  if (preset === 'sanctuary') {
-    return `${overlay}, radial-gradient(circle at 20% 20%, rgba(255, 243, 214, 0.30), transparent 20%), radial-gradient(circle at 80% 24%, rgba(173, 216, 230, 0.14), transparent 18%), linear-gradient(160deg, #1a2230, #05070c 72%)`;
-  }
-  if (preset === 'soft-light') {
-    return `${overlay}, linear-gradient(160deg, #faf3e6, #f2f7f5 48%, #edf1f8 100%)`;
-  }
-  return '';
-}
-
-function getMainScreenPreviewText() {
-  const previewLanguage = $('displayLanguageSelect')?.value || currentEvent?.displayState?.language;
-  if (currentEvent?.mode === 'song' && currentEvent?.songState?.activeBlock) {
-    return currentEvent.songState.translations?.[previewLanguage] || currentEvent.songState.activeBlock;
-  }
-  if (currentEvent?.displayState?.mode === 'manual') {
-    return currentEvent.displayState.manualTranslations?.[previewLanguage] || currentEvent.displayState.manualSource || '';
-  }
-  const lastEntry = (currentEvent?.transcripts || []).slice().pop();
-  if (lastEntry) {
-    return lastEntry.translations?.[previewLanguage] || lastEntry.original || '';
-  }
-  return '';
-}
-
-function renderMainScreenPreview() {
-  const preview = $('mainScreenPreview');
-  const textEl = $('mainScreenPreviewText');
-  const clockEl = $('mainScreenPreviewClock');
-  if (!preview || !textEl || !clockEl) return;
-  const saved = currentEvent?.displayState || {};
-  const displayState = {
-    ...saved,
-    theme: $('displayThemeSelect')?.value || saved.theme || 'dark',
-    language: $('displayLanguageSelect')?.value || saved.language || 'no',
-    backgroundPreset: $('displayBackgroundPresetSelect')?.value || saved.backgroundPreset || 'none',
-    customBackground: $('displayBackgroundInput')?.value?.trim() || saved.customBackground || '',
-    showClock: $('displayShowClockBox') ? !!$('displayShowClockBox').checked : !!saved.showClock,
-    clockPosition: $('displayClockPositionSelect')?.value || saved.clockPosition || 'top-right',
-    textSize: $('displayTextSizeSelect')?.value || saved.textSize || 'large',
-    screenStyle: $('displayScreenStyleSelect')?.value || saved.screenStyle || 'focus'
-  };
-  const theme = displayState.theme || 'dark';
-  preview.dataset.theme = theme;
-  preview.dataset.textSize = displayState.textSize || 'large';
-  preview.dataset.screenStyle = displayState.screenStyle || 'focus';
-  preview.style.backgroundImage = displayState.customBackground
-    ? `${theme === 'light' ? 'linear-gradient(rgba(255,255,255,0.45), rgba(255,255,255,0.45))' : 'linear-gradient(rgba(12,18,28,0.45), rgba(12,18,28,0.45))'}, url("${String(displayState.customBackground || '').replaceAll('"', '%22')}")`
-    : getPresetBackgroundCss(displayState.backgroundPreset || 'none', theme);
-  preview.style.backgroundColor = theme === 'light' ? '#fffdf8' : '#000';
-  clockEl.style.display = displayState.showClock ? 'block' : 'none';
-  clockEl.className = `main-screen-preview-clock clock-${displayState.clockPosition || 'top-right'}`;
-  clockEl.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  textEl.textContent = getMainScreenPreviewText() || 'Main screen preview will appear here.';
-}
-
 function renderManualHistory(items = []) {
   const box = $('manualHistoryList');
   if (!box) return;
@@ -227,11 +165,6 @@ function refreshDisplayControls() {
   if (modeLabel) {
     const modeText = currentEvent?.displayState?.mode === 'manual' ? 'Pinned text' : 'Live follow';
     const themeText = currentEvent?.displayState?.theme === 'light' ? 'Black on white' : 'White on black';
-    modeLabel.textContent = `Display: ${modeText} · Theme: ${themeText}`;
-  }
-  if (modeLabel) {
-    const modeText = currentEvent?.displayState?.mode === 'manual' ? 'Pinned text' : 'Live follow';
-    const themeText = currentEvent?.displayState?.theme === 'light' ? 'Black on white' : 'White on black';
     modeLabel.textContent = `Main screen: ${modeText} · Theme: ${themeText}`;
   }
   if (themeSelect) {
@@ -260,7 +193,6 @@ function refreshDisplayControls() {
   if (screenStyleSelect) {
     screenStyleSelect.value = currentEvent?.displayState?.screenStyle || 'focus';
   }
-  renderMainScreenPreview();
 }
 
 function getSongEditorLabels() {
@@ -566,7 +498,6 @@ function renderSongState(songState) {
 
   summaryEl.textContent = `Saved: ${libraryCount} · History: ${historyCount}`;
   previewEl.textContent = activeBlock || currentEvent?.displayState?.manualSource || 'Song mode text will appear here.';
-  renderMainScreenPreview();
 
   if (!blocks.length) {
     blocksEl.innerHTML = '<div class="muted">Use Save in library or Send first verse live.</div>';
@@ -782,7 +713,6 @@ async function setDisplayMode(mode) {
   currentEvent.displayState = data.displayState || currentEvent.displayState;
   refreshDisplayControls();
   renderActiveEventBadge(currentEvent);
-  renderMainScreenPreview();
   setStatus(mode === 'manual' ? 'Main screen switched to pinned text.' : 'Main screen switched to live follow.');
 }
 
@@ -841,6 +771,26 @@ async function blankMainScreen() {
   setStatus('Main screen blanked. Only clock remains if enabled.');
 }
 
+function openPreviewWindow(url, name, features) {
+  if (!url) return;
+  window.open(url, name, features);
+}
+
+function openMainPreviewWindow() {
+  const url = $('translateLink')?.value || '/translate';
+  openPreviewWindow(url, 'bpmsMainPreview', 'width=1500,height=920,resizable=yes,scrollbars=yes');
+}
+
+function openParticipantPreviewWindow() {
+  const url = $('participantLink')?.value || '/participant';
+  openPreviewWindow(url, 'bpmsParticipantPreview', 'width=520,height=920,resizable=yes,scrollbars=yes');
+}
+
+function openBothPreviewWindows() {
+  openMainPreviewWindow();
+  window.setTimeout(openParticipantPreviewWindow, 120);
+}
+
 async function clearSongFromScreen() {
   if (!currentEvent) return alert('Open or create an event first.');
   const res = await fetch(`/api/events/${currentEvent.id}/song/clear`, adminJsonOptions('POST'));
@@ -850,7 +800,6 @@ async function clearSongFromScreen() {
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
   refreshDisplayControls();
-  renderMainScreenPreview();
   setStatus('Screen cleared. Only clock remains if enabled.');
 }
 
@@ -1418,13 +1367,10 @@ $('displayAutoBtn').addEventListener('click', () => setDisplayMode('auto'));
 $('displayManualBtn').addEventListener('click', () => setDisplayMode('manual'));
 $('displayThemeSelect').addEventListener('change', () => setDisplayTheme($('displayThemeSelect').value));
 $('displayLanguageSelect').addEventListener('change', () => setDisplayLanguage($('displayLanguageSelect').value));
-$('displayBackgroundPresetSelect').addEventListener('change', renderMainScreenPreview);
-$('displayBackgroundInput').addEventListener('input', renderMainScreenPreview);
-$('displayShowClockBox').addEventListener('change', renderMainScreenPreview);
-$('displayClockPositionSelect').addEventListener('change', renderMainScreenPreview);
-$('displayTextSizeSelect').addEventListener('change', renderMainScreenPreview);
-$('displayScreenStyleSelect').addEventListener('change', renderMainScreenPreview);
 $('saveDisplaySettingsBtn').addEventListener('click', saveDisplaySettings);
+$('openMainPreviewBtn').addEventListener('click', openMainPreviewWindow);
+$('openParticipantPreviewBtn').addEventListener('click', openParticipantPreviewWindow);
+$('openBothPreviewsBtn').addEventListener('click', openBothPreviewWindows);
 $('songLibrarySearch').addEventListener('input', () => renderSongLibrary(currentEvent?.songLibrary || []));
 $('songLibrarySort').addEventListener('change', () => renderSongLibrary(currentEvent?.songLibrary || []));
 $('globalSongLibrarySearch').addEventListener('input', () => renderGlobalSongLibrary(currentGlobalSongLibrary));
@@ -1578,5 +1524,4 @@ window.addEventListener('load', async () => {
     const data = await res.json();
     if (data.ok && data.event) await openEventById(data.event.id);
   } catch (_) {}
-  window.setInterval(renderMainScreenPreview, 30000);
 });
