@@ -594,6 +594,71 @@ progress::-moz-progress-bar {
   min-height: 120px;
 }
 
+.main-screen-settings-card {
+  margin-bottom: 6px;
+}
+
+.main-screen-preview {
+  position: relative;
+  min-height: 260px;
+  overflow: hidden;
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #000;
+  color: #f9fafb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 26px;
+  text-align: center;
+  background-size: cover;
+  background-position: center;
+}
+
+.main-screen-preview[data-theme="light"] {
+  color: #18202b;
+  border-color: rgba(24, 32, 43, 0.08);
+}
+
+.main-screen-preview-text {
+  width: min(100%, 920px);
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 700;
+  line-height: 1.14;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+  white-space: pre-wrap;
+  text-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+}
+
+.main-screen-preview[data-theme="light"] .main-screen-preview-text {
+  text-shadow: none;
+}
+
+.main-screen-preview[data-text-size="large"] .main-screen-preview-text {
+  font-size: clamp(2rem, 4vw, 3.2rem);
+}
+
+.main-screen-preview[data-text-size="xlarge"] .main-screen-preview-text {
+  font-size: clamp(2.3rem, 4.6vw, 3.8rem);
+}
+
+.main-screen-preview[data-screen-style="focus"] .main-screen-preview-text {
+  width: min(100%, 760px);
+}
+
+.main-screen-preview[data-screen-style="wide"] .main-screen-preview-text {
+  width: min(100%, 1020px);
+}
+
+.main-screen-preview-clock {
+  position: absolute;
+  z-index: 1;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
 .actions {
   display: flex;
   gap: 10px;
@@ -798,22 +863,48 @@ progress::-moz-progress-bar {
   flex-direction: column;
   justify-content: center;
   position: relative;
+  overflow: hidden;
 }
 
 .unified-display-text {
-  width: min(100%, 1700px);
+  width: min(100%, 1320px);
   align-self: center;
   text-align: center;
-  font-size: clamp(2.6rem, 6vw, 6.8rem);
-  line-height: 1.08;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: clamp(3rem, 6.5vw, 7.2rem);
+  font-weight: 700;
+  line-height: 1.14;
   white-space: pre-wrap;
   text-wrap: balance;
+  letter-spacing: -0.035em;
+  text-shadow: 0 10px 34px rgba(0, 0, 0, 0.34);
 }
 
 .display-theme-light .display-single-text,
 .display-theme-light .song-only-translation,
 .display-theme-light .unified-display-text {
   color: #18202b;
+  text-shadow: none;
+}
+
+.unified-display-live[data-text-size="large"] .unified-display-text,
+.unified-display-text[data-text-size="large"] {
+  font-size: clamp(3rem, 6.5vw, 7.2rem);
+}
+
+.unified-display-live[data-text-size="xlarge"] .unified-display-text,
+.unified-display-text[data-text-size="xlarge"] {
+  font-size: clamp(3.4rem, 7.2vw, 8.2rem);
+}
+
+.unified-display-live[data-screen-style="focus"] .unified-display-text,
+.unified-display-text[data-screen-style="focus"] {
+  width: min(100%, 1160px);
+}
+
+.unified-display-live[data-screen-style="wide"] .unified-display-text,
+.unified-display-text[data-screen-style="wide"] {
+  width: min(100%, 1460px);
 }
 
 .display-clock {

@@ -27,7 +27,7 @@
         <button class="nav-btn" data-tab="events" type="button">Events</button>
         <button class="nav-btn" data-tab="song" type="button">Song mode</button>
         <button class="nav-btn" data-tab="glossary" type="button">Glossary</button>
-        <button class="nav-btn" data-tab="manual" type="button">Manual Push</button>
+        <button class="nav-btn" data-tab="manual" type="button">Quick Text</button>
       </nav>
 
       <div class="sidebar-screen-links">
@@ -252,30 +252,81 @@
               <h2>Song Mode Console</h2>
               <div id="songModeBadge" class="status-pill">Live</div>
             </div>
-            <div id="displayModeLabel" class="muted">Ecran: Auto</div>
+            <div id="displayModeLabel" class="muted">Main screen: Live follow</div>
             <div id="songCurrentIndex" class="muted">Saved: 0 · History: 0</div>
-            <div class="button-row compact-row">
-              <button id="displayAutoBtn" class="btn btn-dark" type="button">Display auto</button>
-              <button id="displayManualBtn" class="btn btn-primary" type="button">Display manual</button>
-              <button id="clearSongScreenBtn" class="btn btn-danger" type="button">Clear from screen</button>
-            </div>
-            <div class="button-row compact-row">
-              <select id="displayThemeSelect">
-                <option value="dark" selected>White on black</option>
-                <option value="light">Black on white</option>
-              </select>
-              <select id="displayLanguageSelect"></select>
-            </div>
-            <div class="button-row compact-row">
-              <input id="displayBackgroundInput" type="text" placeholder="Custom background image URL">
-              <select id="displayClockPositionSelect">
-                <option value="top-right" selected>Clock top right</option>
-                <option value="top-left">Clock top left</option>
-                <option value="bottom-right">Clock bottom right</option>
-                <option value="bottom-left">Clock bottom left</option>
-              </select>
+            <div class="info-card soft-card main-screen-settings-card">
+              <div class="section-head admin-subsection-head">
+                <h2>Main Screen Settings</h2>
+                <div class="muted">Theme, readability, preview and blank screen</div>
+              </div>
+              <div class="button-row compact-row">
+                <button id="displayAutoBtn" class="btn btn-dark" type="button">Live follow</button>
+                <button id="displayManualBtn" class="btn btn-primary" type="button">Pinned text</button>
+                <button id="clearSongScreenBtn" class="btn btn-danger" type="button">Clear screen</button>
+                <button id="blankMainScreenBtn" class="btn btn-dark" type="button">Blank main screen</button>
+              </div>
+              <div class="split-2">
+                <div>
+                  <label>Theme</label>
+                  <select id="displayThemeSelect">
+                    <option value="dark" selected>White on black</option>
+                    <option value="light">Black on white</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Screen language</label>
+                  <select id="displayLanguageSelect"></select>
+                </div>
+              </div>
+              <div class="split-2">
+                <div>
+                  <label>Background preset</label>
+                  <select id="displayBackgroundPresetSelect">
+                    <option value="none" selected>Solid theme</option>
+                    <option value="warm">Warm glow</option>
+                    <option value="sanctuary">Sanctuary blur</option>
+                    <option value="soft-light">Soft light</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Text size</label>
+                  <select id="displayTextSizeSelect">
+                    <option value="large" selected>Large</option>
+                    <option value="xlarge">Extra large</option>
+                  </select>
+                </div>
+              </div>
+              <div class="split-2">
+                <div>
+                  <label>Text layout</label>
+                  <select id="displayScreenStyleSelect">
+                    <option value="focus" selected>Focus</option>
+                    <option value="wide">Wide</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Clock position</label>
+                  <select id="displayClockPositionSelect">
+                    <option value="top-right" selected>Clock top right</option>
+                    <option value="top-left">Clock top left</option>
+                    <option value="bottom-right">Clock bottom right</option>
+                    <option value="bottom-left">Clock bottom left</option>
+                  </select>
+                </div>
+              </div>
+              <label>Custom background image URL</label>
+              <input id="displayBackgroundInput" type="text" placeholder="Optional image URL overrides preset">
               <label class="inline-check"><input id="displayShowClockBox" type="checkbox"> Show clock</label>
-              <button id="saveDisplaySettingsBtn" class="btn btn-dark" type="button">Save screen settings</button>
+              <div class="button-row compact-row">
+                <button id="saveDisplaySettingsBtn" class="btn btn-dark" type="button">Save main screen settings</button>
+              </div>
+              <div class="info-card soft-card">
+                <div class="label">Main screen preview</div>
+                <div id="mainScreenPreview" class="main-screen-preview" data-theme="dark" data-text-size="large" data-screen-style="focus">
+                  <div id="mainScreenPreviewClock" class="main-screen-preview-clock">18:45</div>
+                  <div id="mainScreenPreviewText" class="main-screen-preview-text">Main screen preview will appear here.</div>
+                </div>
+              </div>
             </div>
             <label>Title</label>
             <input id="songTitle" type="text" placeholder="Amazing Grace">
@@ -284,18 +335,18 @@
             <div class="button-row">
               <button id="saveSongBtn" class="btn btn-dark">Save in library</button>
               <button id="saveGlobalSongBtn" class="btn btn-dark">Save to church library</button>
-              <button id="sendSongBtn" class="btn btn-primary">Send first verse live</button>
+              <button id="sendSongBtn" class="btn btn-primary">Send first verse</button>
             </div>
             <div class="button-row compact-row">
-              <button id="songPrevBtn" class="btn btn-dark" type="button">Prev verse</button>
+              <button id="songPrevBtn" class="btn btn-dark" type="button">Previous verse</button>
               <button id="songNextBtn" class="btn btn-dark" type="button">Next verse</button>
             </div>
             <div class="info-card soft-card">
-              <div class="label">Display preview</div>
+              <div class="label">Song mode preview</div>
               <div id="songPreview" class="song-preview">Song mode text will appear here.</div>
             </div>
             <div id="songBlocksList" class="history-list">
-              <div class="muted">Use Save in library or Send first verse live.</div>
+              <div class="muted">Use Save in library or Send first verse.</div>
             </div>
           </div>
 
@@ -374,14 +425,23 @@
       <section id="tab-manual" class="tab-panel">
         <div class="panel glass-panel section-stack">
           <div class="section-head">
-            <h2>Manual Push</h2>
+            <h2>Quick Text Push</h2>
             <div class="live-chip">Direct publish</div>
           </div>
           <textarea id="manualText" placeholder="Write text here"></textarea>
           <div class="muted">Press Enter twice quickly to send.</div>
           <div class="button-row compact-row">
             <button id="sendManualLiveBtn" class="btn btn-dark" type="button">Send to live</button>
-            <button id="sendManualDisplayBtn" class="btn btn-primary" type="button">Send to manual display</button>
+            <button id="sendManualDisplayBtn" class="btn btn-primary" type="button">Send to pinned text</button>
+          </div>
+          <div class="info-card soft-card">
+            <div class="section-head admin-subsection-head">
+              <h2>Pinned Text History</h2>
+              <div class="muted">Resend a recent pinned text quickly</div>
+            </div>
+            <div id="manualHistoryList" class="history-list">
+              <div class="muted">No pinned texts yet.</div>
+            </div>
           </div>
         </div>
       </section>

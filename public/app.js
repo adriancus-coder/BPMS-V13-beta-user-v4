@@ -112,6 +112,88 @@ function filterAndSortLibrary(items = [], searchId, sortId) {
     });
 }
 
+function getPresetBackgroundCss(preset, theme) {
+  const overlay = theme === 'light'
+    ? 'linear-gradient(rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0.38))'
+    : 'linear-gradient(rgba(8, 12, 20, 0.34), rgba(8, 12, 20, 0.34))';
+  if (preset === 'warm') {
+    return `${overlay}, radial-gradient(circle at top, rgba(200, 138, 43, 0.30), transparent 32%), radial-gradient(circle at bottom, rgba(15, 118, 110, 0.18), transparent 38%), linear-gradient(180deg, #241b14, #080b12)`;
+  }
+  if (preset === 'sanctuary') {
+    return `${overlay}, radial-gradient(circle at 20% 20%, rgba(255, 243, 214, 0.30), transparent 20%), radial-gradient(circle at 80% 24%, rgba(173, 216, 230, 0.14), transparent 18%), linear-gradient(160deg, #1a2230, #05070c 72%)`;
+  }
+  if (preset === 'soft-light') {
+    return `${overlay}, linear-gradient(160deg, #faf3e6, #f2f7f5 48%, #edf1f8 100%)`;
+  }
+  return '';
+}
+
+function getMainScreenPreviewText() {
+  const previewLanguage = $('displayLanguageSelect')?.value || currentEvent?.displayState?.language;
+  if (currentEvent?.mode === 'song' && currentEvent?.songState?.activeBlock) {
+    return currentEvent.songState.translations?.[previewLanguage] || currentEvent.songState.activeBlock;
+  }
+  if (currentEvent?.displayState?.mode === 'manual') {
+    return currentEvent.displayState.manualTranslations?.[previewLanguage] || currentEvent.displayState.manualSource || '';
+  }
+  const lastEntry = (currentEvent?.transcripts || []).slice().pop();
+  if (lastEntry) {
+    return lastEntry.translations?.[previewLanguage] || lastEntry.original || '';
+  }
+  return '';
+}
+
+function renderMainScreenPreview() {
+  const preview = $('mainScreenPreview');
+  const textEl = $('mainScreenPreviewText');
+  const clockEl = $('mainScreenPreviewClock');
+  if (!preview || !textEl || !clockEl) return;
+  const saved = currentEvent?.displayState || {};
+  const displayState = {
+    ...saved,
+    theme: $('displayThemeSelect')?.value || saved.theme || 'dark',
+    language: $('displayLanguageSelect')?.value || saved.language || 'no',
+    backgroundPreset: $('displayBackgroundPresetSelect')?.value || saved.backgroundPreset || 'none',
+    customBackground: $('displayBackgroundInput')?.value?.trim() || saved.customBackground || '',
+    showClock: $('displayShowClockBox') ? !!$('displayShowClockBox').checked : !!saved.showClock,
+    clockPosition: $('displayClockPositionSelect')?.value || saved.clockPosition || 'top-right',
+    textSize: $('displayTextSizeSelect')?.value || saved.textSize || 'large',
+    screenStyle: $('displayScreenStyleSelect')?.value || saved.screenStyle || 'focus'
+  };
+  const theme = displayState.theme || 'dark';
+  preview.dataset.theme = theme;
+  preview.dataset.textSize = displayState.textSize || 'large';
+  preview.dataset.screenStyle = displayState.screenStyle || 'focus';
+  preview.style.backgroundImage = displayState.customBackground
+    ? `${theme === 'light' ? 'linear-gradient(rgba(255,255,255,0.45), rgba(255,255,255,0.45))' : 'linear-gradient(rgba(12,18,28,0.45), rgba(12,18,28,0.45))'}, url("${String(displayState.customBackground || '').replaceAll('"', '%22')}")`
+    : getPresetBackgroundCss(displayState.backgroundPreset || 'none', theme);
+  preview.style.backgroundColor = theme === 'light' ? '#fffdf8' : '#000';
+  clockEl.style.display = displayState.showClock ? 'block' : 'none';
+  clockEl.className = `main-screen-preview-clock clock-${displayState.clockPosition || 'top-right'}`;
+  clockEl.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  textEl.textContent = getMainScreenPreviewText() || 'Main screen preview will appear here.';
+}
+
+function renderManualHistory(items = []) {
+  const box = $('manualHistoryList');
+  if (!box) return;
+  const manualItems = (Array.isArray(items) ? items : []).filter((item) => (item.kind || 'song') === 'manual');
+  if (!manualItems.length) {
+    box.innerHTML = '<div class="muted">No pinned texts yet.</div>';
+    return;
+  }
+  box.innerHTML = manualItems.map((item) => `
+    <div class="history-item">
+      <div><b>${escapeHtml(item.title || 'Pinned text')}</b></div>
+      <div class="small">${escapeHtmlWithBreaks(String(item.source || '').slice(0, 200))}${String(item.source || '').length > 200 ? '...' : ''}</div>
+      <div class="actions">
+        <button class="btn btn-dark" type="button" data-manual-history-action="load" data-manual-history-id="${item.id}">Load</button>
+        <button class="btn btn-primary" type="button" data-manual-history-action="send" data-manual-history-id="${item.id}">Send again</button>
+      </div>
+    </div>
+  `).join('');
+}
+
 function renderActiveEventBadge(event) {
   const badge = $('activeEventBadge');
   const opened = $('openedEventBadge');
@@ -120,7 +202,7 @@ function renderActiveEventBadge(event) {
     badge.textContent = 'No live event';
     badge.className = 'status-pill';
     opened.textContent = 'No event opened';
-    $('songModeBadge').textContent = 'Live';
+    $('songModeBadge').textContent = 'Live follow';
     return;
   }
   const extra = event.scheduledAt ? ` · ${formatDateTime(event.scheduledAt)}` : '';
@@ -128,7 +210,7 @@ function renderActiveEventBadge(event) {
   badge.className = event.isActive ? 'status-pill active' : 'status-pill';
   opened.textContent = `Opened: ${event.name}${extra}`;
   const isSongMode = event.mode === 'song';
-  $('songModeBadge').textContent = isSongMode ? 'Song mode live' : (event.displayState?.mode === 'manual' ? 'Display Manual' : 'Live');
+  $('songModeBadge').textContent = isSongMode ? 'Song mode live' : (event.displayState?.mode === 'manual' ? 'Pinned text live' : 'Live follow');
   $('songModeBadge').className = (isSongMode || event.displayState?.mode === 'manual') ? 'status-pill active' : 'status-pill';
 }
 
@@ -136,13 +218,21 @@ function refreshDisplayControls() {
   const modeLabel = $('displayModeLabel');
   const themeSelect = $('displayThemeSelect');
   const languageSelect = $('displayLanguageSelect');
+  const backgroundPresetSelect = $('displayBackgroundPresetSelect');
   const backgroundInput = $('displayBackgroundInput');
   const showClockBox = $('displayShowClockBox');
   const clockPositionSelect = $('displayClockPositionSelect');
+  const textSizeSelect = $('displayTextSizeSelect');
+  const screenStyleSelect = $('displayScreenStyleSelect');
   if (modeLabel) {
-    const modeText = currentEvent?.displayState?.mode === 'manual' ? 'Manual' : 'Auto';
+    const modeText = currentEvent?.displayState?.mode === 'manual' ? 'Pinned text' : 'Live follow';
     const themeText = currentEvent?.displayState?.theme === 'light' ? 'Black on white' : 'White on black';
     modeLabel.textContent = `Display: ${modeText} · Theme: ${themeText}`;
+  }
+  if (modeLabel) {
+    const modeText = currentEvent?.displayState?.mode === 'manual' ? 'Pinned text' : 'Live follow';
+    const themeText = currentEvent?.displayState?.theme === 'light' ? 'Black on white' : 'White on black';
+    modeLabel.textContent = `Main screen: ${modeText} · Theme: ${themeText}`;
   }
   if (themeSelect) {
     themeSelect.value = currentEvent?.displayState?.theme || 'dark';
@@ -155,12 +245,22 @@ function refreshDisplayControls() {
   if (backgroundInput) {
     backgroundInput.value = currentEvent?.displayState?.customBackground || '';
   }
+  if (backgroundPresetSelect) {
+    backgroundPresetSelect.value = currentEvent?.displayState?.backgroundPreset || 'none';
+  }
   if (showClockBox) {
     showClockBox.checked = !!currentEvent?.displayState?.showClock;
   }
   if (clockPositionSelect) {
     clockPositionSelect.value = currentEvent?.displayState?.clockPosition || 'top-right';
   }
+  if (textSizeSelect) {
+    textSizeSelect.value = currentEvent?.displayState?.textSize || 'large';
+  }
+  if (screenStyleSelect) {
+    screenStyleSelect.value = currentEvent?.displayState?.screenStyle || 'focus';
+  }
+  renderMainScreenPreview();
 }
 
 function getSongEditorLabels() {
@@ -466,6 +566,7 @@ function renderSongState(songState) {
 
   summaryEl.textContent = `Saved: ${libraryCount} · History: ${historyCount}`;
   previewEl.textContent = activeBlock || currentEvent?.displayState?.manualSource || 'Song mode text will appear here.';
+  renderMainScreenPreview();
 
   if (!blocks.length) {
     blocksEl.innerHTML = '<div class="muted">Use Save in library or Send first verse live.</div>';
@@ -478,7 +579,7 @@ function renderSongState(songState) {
     return `
       <div class="history-item${activeClass}">
         <input class="song-block-label-input" data-song-label-input="${index}" type="text" value="${label}">
-        <button class="btn btn-dark" type="button" data-song-block-index="${index}">Show verse</button>
+        <button class="btn btn-dark" type="button" data-song-block-index="${index}">Show on screen</button>
         <div class="small">${escapeHtmlWithBreaks(block)}</div>
       </div>
     `;
@@ -498,7 +599,7 @@ function renderSongLibrary(items = []) {
       <div class="name">${escapeHtml(item.title || 'Untitled')}</div>
       <div class="actions">
         <button class="btn btn-dark" data-song-action="load" data-song-id="${item.id}">Load</button>
-        <button class="btn btn-primary" data-song-action="send" data-song-id="${item.id}">Send live</button>
+        <button class="btn btn-primary" data-song-action="send" data-song-id="${item.id}">Send first verse</button>
         <button data-song-action="delete" data-song-id="${item.id}">Delete</button>
       </div>
     </div>
@@ -518,7 +619,7 @@ function renderGlobalSongLibrary(items = []) {
       <div class="name">${escapeHtml(item.title || 'Untitled')}</div>
       <div class="actions">
         <button class="btn btn-dark" data-global-song-action="load" data-global-song-id="${item.id}">Load</button>
-        <button class="btn btn-primary" data-global-song-action="send" data-global-song-id="${item.id}">Send live</button>
+        <button class="btn btn-primary" data-global-song-action="send" data-global-song-id="${item.id}">Send first verse</button>
         <button class="btn btn-primary" data-global-song-action="add" data-global-song-id="${item.id}">Add to event</button>
         <button data-global-song-action="delete" data-global-song-id="${item.id}">Delete</button>
       </div>
@@ -529,6 +630,7 @@ function renderGlobalSongLibrary(items = []) {
 function renderSongHistory(items = []) {
   const box = $('songHistoryList');
   if (!box) return;
+  renderManualHistory(items);
   if (!items.length) {
     box.innerHTML = '<div class="muted">Nothing sent yet.</div>';
     return;
@@ -537,7 +639,7 @@ function renderSongHistory(items = []) {
     const preview = item.source || '';
     return `
       <div class="history-item">
-        <div><b>${escapeHtml(item.title || 'Sent text')}</b></div>
+        <div><b>${escapeHtml(item.title || 'Sent text')}</b> <span class="small">(${escapeHtml(item.kind || 'song')})</span></div>
         <div class="small">${escapeHtmlWithBreaks(preview.slice(0, 220))}${preview.length > 220 ? '...' : ''}</div>
       </div>
     `;
@@ -627,7 +729,7 @@ async function sendSongItemToLive(item) {
   currentEvent.songState = data.songState || currentEvent.songState;
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
-  setStatus('First verse is now live. Use Prev/Next for the rest.');
+  setStatus('First verse is now on screen. Use Previous/Next for the rest.');
 }
 
 async function sendSongToLive() {
@@ -680,7 +782,8 @@ async function setDisplayMode(mode) {
   currentEvent.displayState = data.displayState || currentEvent.displayState;
   refreshDisplayControls();
   renderActiveEventBadge(currentEvent);
-  setStatus(mode === 'manual' ? 'Display switched to manual.' : 'Display switched to auto.');
+  renderMainScreenPreview();
+  setStatus(mode === 'manual' ? 'Main screen switched to pinned text.' : 'Main screen switched to live follow.');
 }
 
 async function setDisplayTheme(theme) {
@@ -705,19 +808,37 @@ async function setDisplayLanguage(language) {
 
 async function saveDisplaySettings() {
   if (!currentEvent) return alert('Open or create an event first.');
+  const backgroundPreset = $('displayBackgroundPresetSelect').value;
   const customBackground = $('displayBackgroundInput').value.trim();
   const showClock = !!$('displayShowClockBox').checked;
   const clockPosition = $('displayClockPositionSelect').value;
+  const textSize = $('displayTextSizeSelect').value;
+  const screenStyle = $('displayScreenStyleSelect').value;
   const res = await fetch(`/api/events/${currentEvent.id}/display/settings`, adminJsonOptions('POST', {
+    backgroundPreset,
     customBackground,
     showClock,
-    clockPosition
+    clockPosition,
+    textSize,
+    screenStyle
   }));
   const data = await res.json();
   if (!data.ok) return alert(data.error || 'Could not save main screen settings.');
   currentEvent.displayState = data.displayState || currentEvent.displayState;
   refreshDisplayControls();
   setStatus('Main screen settings saved.');
+}
+
+async function blankMainScreen() {
+  if (!currentEvent) return alert('Open or create an event first.');
+  const res = await fetch(`/api/events/${currentEvent.id}/display/blank`, adminJsonOptions('POST'));
+  const data = await res.json();
+  if (!data.ok) return alert(data.error || 'Could not blank main screen.');
+  currentEvent = data.event || currentEvent;
+  refreshDisplayControls();
+  renderActiveEventBadge(currentEvent);
+  renderSongState(currentEvent.songState || {});
+  setStatus('Main screen blanked. Only clock remains if enabled.');
 }
 
 async function clearSongFromScreen() {
@@ -729,6 +850,7 @@ async function clearSongFromScreen() {
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
   refreshDisplayControls();
+  renderMainScreenPreview();
   setStatus('Screen cleared. Only clock remains if enabled.');
 }
 
@@ -1070,6 +1192,10 @@ async function sendManualText(target = 'auto') {
   lastManualEnterAt = 0;
 }
 
+function getManualHistoryItemById(itemId) {
+  return (currentEvent?.songHistory || []).find((item) => item.id === itemId && (item.kind || 'song') === 'manual') || null;
+}
+
 
 async function loadSong() {
   switchTab('song');
@@ -1157,15 +1283,18 @@ socket.on('song_clear', () => {
   renderSongState(currentEvent.songState);
   renderActiveEventBadge(currentEvent);
 });
-socket.on('display_mode_changed', ({ mode, theme, language, customBackground, showClock, clockPosition }) => {
+socket.on('display_mode_changed', ({ mode, theme, language, backgroundPreset, customBackground, showClock, clockPosition, textSize, screenStyle }) => {
   if (!currentEvent) return;
   currentEvent.displayState = currentEvent.displayState || {};
   currentEvent.displayState.mode = mode;
   currentEvent.displayState.theme = theme || currentEvent.displayState.theme || 'dark';
   currentEvent.displayState.language = language || currentEvent.displayState.language;
+  currentEvent.displayState.backgroundPreset = backgroundPreset || currentEvent.displayState.backgroundPreset || 'none';
   currentEvent.displayState.customBackground = typeof customBackground === 'string' ? customBackground : (currentEvent.displayState.customBackground || '');
   currentEvent.displayState.showClock = typeof showClock === 'boolean' ? showClock : !!currentEvent.displayState.showClock;
   currentEvent.displayState.clockPosition = clockPosition || currentEvent.displayState.clockPosition || 'top-right';
+  currentEvent.displayState.textSize = textSize || currentEvent.displayState.textSize || 'large';
+  currentEvent.displayState.screenStyle = screenStyle || currentEvent.displayState.screenStyle || 'focus';
   refreshDisplayControls();
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
@@ -1176,15 +1305,18 @@ socket.on('display_theme_changed', ({ theme }) => {
   currentEvent.displayState.theme = theme || 'dark';
   refreshDisplayControls();
 });
-socket.on('display_manual_update', ({ mode, theme, language, customBackground, showClock, clockPosition, manualSource, manualTranslations, updatedAt }) => {
+socket.on('display_manual_update', ({ mode, theme, language, backgroundPreset, customBackground, showClock, clockPosition, textSize, screenStyle, manualSource, manualTranslations, updatedAt }) => {
   if (!currentEvent) return;
   currentEvent.displayState = currentEvent.displayState || {};
   currentEvent.displayState.mode = mode || 'manual';
   currentEvent.displayState.theme = theme || currentEvent.displayState.theme || 'dark';
   currentEvent.displayState.language = language || currentEvent.displayState.language;
+  currentEvent.displayState.backgroundPreset = backgroundPreset || currentEvent.displayState.backgroundPreset || 'none';
   currentEvent.displayState.customBackground = typeof customBackground === 'string' ? customBackground : (currentEvent.displayState.customBackground || '');
   currentEvent.displayState.showClock = typeof showClock === 'boolean' ? showClock : !!currentEvent.displayState.showClock;
   currentEvent.displayState.clockPosition = clockPosition || currentEvent.displayState.clockPosition || 'top-right';
+  currentEvent.displayState.textSize = textSize || currentEvent.displayState.textSize || 'large';
+  currentEvent.displayState.screenStyle = screenStyle || currentEvent.displayState.screenStyle || 'focus';
   currentEvent.displayState.manualSource = manualSource || '';
   currentEvent.displayState.manualTranslations = manualTranslations || {};
   currentEvent.displayState.updatedAt = updatedAt || currentEvent.displayState.updatedAt || null;
@@ -1281,10 +1413,17 @@ $('sendSongBtn').addEventListener('click', sendSongToLive);
 $('songPrevBtn').addEventListener('click', goToPrevSongBlock);
 $('songNextBtn').addEventListener('click', goToNextSongBlock);
 $('clearSongScreenBtn').addEventListener('click', clearSongFromScreen);
+$('blankMainScreenBtn').addEventListener('click', blankMainScreen);
 $('displayAutoBtn').addEventListener('click', () => setDisplayMode('auto'));
 $('displayManualBtn').addEventListener('click', () => setDisplayMode('manual'));
 $('displayThemeSelect').addEventListener('change', () => setDisplayTheme($('displayThemeSelect').value));
 $('displayLanguageSelect').addEventListener('change', () => setDisplayLanguage($('displayLanguageSelect').value));
+$('displayBackgroundPresetSelect').addEventListener('change', renderMainScreenPreview);
+$('displayBackgroundInput').addEventListener('input', renderMainScreenPreview);
+$('displayShowClockBox').addEventListener('change', renderMainScreenPreview);
+$('displayClockPositionSelect').addEventListener('change', renderMainScreenPreview);
+$('displayTextSizeSelect').addEventListener('change', renderMainScreenPreview);
+$('displayScreenStyleSelect').addEventListener('change', renderMainScreenPreview);
 $('saveDisplaySettingsBtn').addEventListener('click', saveDisplaySettings);
 $('songLibrarySearch').addEventListener('input', () => renderSongLibrary(currentEvent?.songLibrary || []));
 $('songLibrarySort').addEventListener('change', () => renderSongLibrary(currentEvent?.songLibrary || []));
@@ -1359,6 +1498,20 @@ $('songLibraryList').addEventListener('click', async (e) => {
     setStatus('Deleted.');
   }
 });
+$('manualHistoryList')?.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-manual-history-action]');
+  if (!btn) return;
+  const item = getManualHistoryItemById(btn.getAttribute('data-manual-history-id'));
+  if (!item) return;
+  if (btn.getAttribute('data-manual-history-action') === 'load') {
+    $('manualText').value = item.source || '';
+    switchTab('manual');
+    setStatus('Pinned text loaded into quick push editor.');
+    return;
+  }
+  $('manualText').value = item.source || '';
+  await sendManualText('manual');
+});
 $('openTranslateScreenBtn').addEventListener('click', () => { const url = $('translateLink').value || '/translate'; if (url) window.open(url, '_blank'); });
 $('eventList').addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-action]');
@@ -1425,4 +1578,5 @@ window.addEventListener('load', async () => {
     const data = await res.json();
     if (data.ok && data.event) await openEventById(data.event.id);
   } catch (_) {}
+  window.setInterval(renderMainScreenPreview, 30000);
 });
