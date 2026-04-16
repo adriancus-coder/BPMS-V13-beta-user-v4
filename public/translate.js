@@ -74,7 +74,7 @@ function applyDisplaySettings() {
     }
   }
   if (clock) {
-    clock.style.display = state.showClock && !document.fullscreenElement ? 'block' : 'none';
+    clock.style.display = state.showClock ? 'block' : 'none';
     clock.className = `display-clock clock-${state.clockPosition || 'top-right'}`;
   }
 }

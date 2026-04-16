@@ -665,10 +665,7 @@ progress::-moz-progress-bar {
 
 .display-body,
 .song-body {
-  background:
-    radial-gradient(circle at top left, rgba(200, 138, 43, 0.22), transparent 24%),
-    radial-gradient(circle at bottom right, rgba(15, 118, 110, 0.16), transparent 28%),
-    linear-gradient(180deg, #191f2a, #111827 100%);
+  background: #000;
   color: #f9fafb;
 }
 
@@ -744,6 +741,22 @@ progress::-moz-progress-bar {
     radial-gradient(circle at bottom left, rgba(15, 118, 110, 0.1), transparent 30%);
   border-color: rgba(24, 32, 43, 0.08);
   box-shadow: 0 24px 50px rgba(105, 82, 57, 0.14);
+}
+
+.display-theme-dark .unified-display-top,
+.display-theme-dark .display-single-top,
+.display-theme-dark .song-screen-top {
+  background: rgba(0, 0, 0, 0.68);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.35);
+}
+
+.display-theme-dark .unified-display-live,
+.display-theme-dark .display-single-panel,
+.display-theme-dark .song-stage {
+  background: #000;
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.35);
 }
 
 .display-single-text,
@@ -884,10 +897,6 @@ progress::-moz-progress-bar {
 
 .display-fullscreen .unified-display-shell {
   padding: 0;
-}
-
-.display-fullscreen .display-clock {
-  display: none !important;
 }
 
 .display-fullscreen .unified-display-live {
