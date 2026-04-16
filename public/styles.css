@@ -672,7 +672,8 @@ progress::-moz-progress-bar {
   color: #f9fafb;
 }
 
-.display-theme-light {
+.display-body.display-theme-light,
+.song-body.display-theme-light {
   background:
     radial-gradient(circle at top left, rgba(200, 138, 43, 0.12), transparent 24%),
     radial-gradient(circle at bottom right, rgba(15, 118, 110, 0.08), transparent 28%),
@@ -773,11 +774,17 @@ progress::-moz-progress-bar {
   align-items: end;
 }
 
+.unified-display-controls-single {
+  grid-template-columns: 1fr;
+  justify-items: center;
+}
+
 .unified-display-live {
   min-height: calc(100vh - 230px);
   display: flex;
   flex-direction: column;
   justify-content: center;
+  position: relative;
 }
 
 .unified-display-text {
@@ -794,6 +801,35 @@ progress::-moz-progress-bar {
 .display-theme-light .song-only-translation,
 .display-theme-light .unified-display-text {
   color: #18202b;
+}
+
+.display-clock {
+  position: absolute;
+  z-index: 2;
+  font-size: clamp(1.1rem, 2vw, 1.7rem);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  opacity: 0.92;
+}
+
+.clock-top-left {
+  top: 20px;
+  left: 24px;
+}
+
+.clock-top-right {
+  top: 20px;
+  right: 24px;
+}
+
+.clock-bottom-left {
+  bottom: 20px;
+  left: 24px;
+}
+
+.clock-bottom-right {
+  bottom: 20px;
+  right: 24px;
 }
 
 .display-single-text {
@@ -848,6 +884,10 @@ progress::-moz-progress-bar {
 
 .display-fullscreen .unified-display-shell {
   padding: 0;
+}
+
+.display-fullscreen .display-clock {
+  display: none !important;
 }
 
 .display-fullscreen .unified-display-live {

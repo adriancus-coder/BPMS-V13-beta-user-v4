@@ -135,6 +135,10 @@ function renderActiveEventBadge(event) {
 function refreshDisplayControls() {
   const modeLabel = $('displayModeLabel');
   const themeSelect = $('displayThemeSelect');
+  const languageSelect = $('displayLanguageSelect');
+  const backgroundInput = $('displayBackgroundInput');
+  const showClockBox = $('displayShowClockBox');
+  const clockPositionSelect = $('displayClockPositionSelect');
   if (modeLabel) {
     const modeText = currentEvent?.displayState?.mode === 'manual' ? 'Manual' : 'Auto';
     const themeText = currentEvent?.displayState?.theme === 'light' ? 'Black on white' : 'White on black';
@@ -143,6 +147,35 @@ function refreshDisplayControls() {
   if (themeSelect) {
     themeSelect.value = currentEvent?.displayState?.theme || 'dark';
   }
+  if (languageSelect) {
+    const langs = currentEvent?.targetLangs || [];
+    languageSelect.innerHTML = langs.map((lang) => `<option value="${lang}">${escapeHtml(langLabel(lang))}</option>`).join('');
+    languageSelect.value = currentEvent?.displayState?.language || langs[0] || 'no';
+  }
+  if (backgroundInput) {
+    backgroundInput.value = currentEvent?.displayState?.customBackground || '';
+  }
+  if (showClockBox) {
+    showClockBox.checked = !!currentEvent?.displayState?.showClock;
+  }
+  if (clockPositionSelect) {
+    clockPositionSelect.value = currentEvent?.displayState?.clockPosition || 'top-right';
+  }
+}
+
+function getSongEditorLabels() {
+  return Array.from(document.querySelectorAll('[data-song-label-input]')).map((input, index) => {
+    const value = String(input.value || '').trim();
+    return value || `Verse ${index + 1}`;
+  });
+}
+
+function splitSongBlocksLocal(text) {
+  return String(text || '')
+    .split(/\n\s*\n/)
+    .map((block) => block.split('\n').map((line) => line.trim()).filter(Boolean).join('\n'))
+    .map((block) => block.trim())
+    .filter(Boolean);
 }
 
 function renderParticipantStats(stats = {}) {
@@ -213,6 +246,14 @@ function adminJsonOptions(method, payload = {}) {
     method,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...payload, code: currentEvent.adminCode })
+  };
+}
+
+function globalJsonOptions(method, payload = {}) {
+  return {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
   };
 }
 
@@ -395,7 +436,6 @@ function populateEventLinks() {
   $('adminCode').textContent = currentEvent.adminCode || '-';
   $('participantLink').value = currentEvent.participantLink || '';
   $('translateLink').value = currentEvent.translateLink || '';
-  $('songLink').value = currentEvent.songLink || '';
   $('qrImage').src = currentEvent.qrCodeDataUrl || '';
 }
 
@@ -406,7 +446,7 @@ function renderSongStateLegacy(songState) {
   const historyCount = Array.isArray(currentEvent?.songHistory) ? currentEvent.songHistory.length : 0;
   $('songCurrentIndex').textContent = `Saved: ${libraryCount} · History: ${historyCount}`;
   $('songPreview').textContent = currentEvent?.displayState?.manualSource || 'Song mode text will appear here.';
-  $('songBlocksList').innerHTML = '<div class="muted">Use Save in library or Send live + display.</div>';
+  $('songBlocksList').innerHTML = '<div class="muted">Use Save in library or Send first verse live.</div>';
 }
 
 
@@ -420,6 +460,7 @@ function renderSongState(songState) {
   const libraryCount = Array.isArray(currentEvent?.songLibrary) ? currentEvent.songLibrary.length : 0;
   const historyCount = Array.isArray(currentEvent?.songHistory) ? currentEvent.songHistory.length : 0;
   const blocks = Array.isArray(songState?.blocks) ? songState.blocks : [];
+  const labels = Array.isArray(songState?.blockLabels) ? songState.blockLabels : [];
   const currentIndex = Number.isInteger(songState?.currentIndex) ? songState.currentIndex : -1;
   const activeBlock = typeof songState?.activeBlock === 'string' ? songState.activeBlock : '';
 
@@ -427,13 +468,20 @@ function renderSongState(songState) {
   previewEl.textContent = activeBlock || currentEvent?.displayState?.manualSource || 'Song mode text will appear here.';
 
   if (!blocks.length) {
-    blocksEl.innerHTML = '<div class="muted">Use Save in library or Send first stanza live.</div>';
+    blocksEl.innerHTML = '<div class="muted">Use Save in library or Send first verse live.</div>';
     return;
   }
 
   blocksEl.innerHTML = blocks.map((block, index) => {
     const activeClass = index === currentIndex ? ' active' : '';
-    return `<button class="history-item${activeClass}" type="button" data-song-block-index="${index}"><b>Block ${index + 1}</b><div class="small">${escapeHtmlWithBreaks(block)}</div></button>`;
+    const label = escapeHtml(labels[index] || `Verse ${index + 1}`);
+    return `
+      <div class="history-item${activeClass}">
+        <input class="song-block-label-input" data-song-label-input="${index}" type="text" value="${label}">
+        <button class="btn btn-dark" type="button" data-song-block-index="${index}">Show verse</button>
+        <div class="small">${escapeHtmlWithBreaks(block)}</div>
+      </div>
+    `;
   }).join('');
 }
 
@@ -510,9 +558,9 @@ async function loadSongLibrary() {
 }
 
 async function loadGlobalSongLibrary() {
-  if (!currentEvent) return;
   try {
-    const res = await fetch(`/api/events/${currentEvent.id}/global-song-library`);
+    const url = currentEvent ? `/api/events/${currentEvent.id}/global-song-library` : '/api/global-song-library';
+    const res = await fetch(url);
     const data = await res.json();
     if (!data.ok) return;
     currentGlobalSongLibrary = data.globalSongLibrary || [];
@@ -525,14 +573,26 @@ async function loadGlobalSongLibrary() {
 function fillSongEditor(item) {
   $('songTitle').value = item?.title || '';
   $('songText').value = item?.text || '';
+  const previewBlocks = splitSongBlocksLocal(item?.text || '');
+  renderSongState({
+    title: item?.title || '',
+    blocks: previewBlocks,
+    blockLabels: Array.isArray(item?.labels) ? item.labels : [],
+    currentIndex: previewBlocks.length ? 0 : -1,
+    activeBlock: previewBlocks[0] || '',
+    translations: {},
+    allTranslations: [],
+    updatedAt: null
+  });
 }
 
 async function saveSongToLibrary() {
   if (!currentEvent) return alert('Open or create an event first.');
   const title = $('songTitle').value.trim();
   const text = $('songText').value.trim();
+  const labels = getSongEditorLabels();
   if (!title || !text) return alert('Complete title and text first.');
-  const res = await fetch(`/api/events/${currentEvent.id}/song-library`, adminJsonOptions('POST', { title, text }));
+  const res = await fetch(`/api/events/${currentEvent.id}/song-library`, adminJsonOptions('POST', { title, text, labels }));
   const data = await res.json();
   if (!data.ok) return alert(data.error || 'Could not save item.');
   currentEvent.songLibrary = data.songLibrary || [];
@@ -542,11 +602,11 @@ async function saveSongToLibrary() {
 }
 
 async function saveSongToGlobalLibrary() {
-  if (!currentEvent) return alert('Open or create an event first.');
   const title = $('songTitle').value.trim();
   const text = $('songText').value.trim();
+  const labels = getSongEditorLabels();
   if (!title || !text) return alert('Complete title and text first.');
-  const res = await fetch(`/api/events/${currentEvent.id}/global-song-library`, adminJsonOptions('POST', { title, text }));
+  const res = await fetch('/api/global-song-library', globalJsonOptions('POST', { title, text, labels }));
   const data = await res.json();
   if (!data.ok) return alert(data.error || 'Could not save item.');
   currentGlobalSongLibrary = data.globalSongLibrary || [];
@@ -558,15 +618,16 @@ async function sendSongItemToLive(item) {
   if (!currentEvent) return alert('Open or create an event first.');
   const title = String(item?.title || '').trim();
   const text = String(item?.text || '').trim();
+  const labels = Array.isArray(item?.labels) ? item.labels : getSongEditorLabels();
   if (!text) return alert('Write text first.');
-  const res = await fetch(`/api/events/${currentEvent.id}/song/load`, adminJsonOptions('POST', { title, text }));
+  const res = await fetch(`/api/events/${currentEvent.id}/song/load`, adminJsonOptions('POST', { title, text, labels }));
   const data = await res.json();
-  if (!data.ok) return alert(data.error || 'Could not start stanza mode.');
+  if (!data.ok) return alert(data.error || 'Could not start verse mode.');
   currentEvent = data.event || currentEvent;
   currentEvent.songState = data.songState || currentEvent.songState;
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
-  setStatus('First stanza is now live. Use Prev/Next for the rest.');
+  setStatus('First verse is now live. Use Prev/Next for the rest.');
 }
 
 async function sendSongToLive() {
@@ -580,7 +641,7 @@ async function showSongBlock(index) {
   if (!currentEvent) return;
   const res = await fetch(`/api/events/${currentEvent.id}/song/show/${index}`, adminJsonOptions('POST'));
   const data = await res.json();
-  if (!data.ok) return alert(data.error || 'Could not show stanza.');
+  if (!data.ok) return alert(data.error || 'Could not show verse.');
   currentEvent.songState = data.songState || currentEvent.songState;
   currentEvent.mode = 'song';
   renderActiveEventBadge(currentEvent);
@@ -591,24 +652,24 @@ async function goToNextSongBlock() {
   if (!currentEvent) return;
   const res = await fetch(`/api/events/${currentEvent.id}/song/next`, adminJsonOptions('POST'));
   const data = await res.json();
-  if (!data.ok) return alert(data.error || 'No next stanza.');
+  if (!data.ok) return alert(data.error || 'No next verse.');
   currentEvent.songState = data.songState || currentEvent.songState;
   currentEvent.mode = 'song';
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
-  setStatus('Moved to next stanza.');
+  setStatus('Moved to next verse.');
 }
 
 async function goToPrevSongBlock() {
   if (!currentEvent) return;
   const res = await fetch(`/api/events/${currentEvent.id}/song/prev`, adminJsonOptions('POST'));
   const data = await res.json();
-  if (!data.ok) return alert(data.error || 'No previous stanza.');
+  if (!data.ok) return alert(data.error || 'No previous verse.');
   currentEvent.songState = data.songState || currentEvent.songState;
   currentEvent.mode = 'song';
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
-  setStatus('Moved to previous stanza.');
+  setStatus('Moved to previous verse.');
 }
 
 async function setDisplayMode(mode) {
@@ -630,6 +691,54 @@ async function setDisplayTheme(theme) {
   currentEvent.displayState = data.displayState || currentEvent.displayState;
   refreshDisplayControls();
   setStatus(theme === 'light' ? 'Display theme set to black on white.' : 'Display theme set to white on black.');
+}
+
+async function setDisplayLanguage(language) {
+  if (!currentEvent) return;
+  const res = await fetch(`/api/events/${currentEvent.id}/display/language`, adminJsonOptions('POST', { language }));
+  const data = await res.json();
+  if (!data.ok) return alert(data.error || 'Could not change screen language.');
+  currentEvent.displayState = data.displayState || currentEvent.displayState;
+  refreshDisplayControls();
+  setStatus('Main screen language updated.');
+}
+
+async function saveDisplaySettings() {
+  if (!currentEvent) return alert('Open or create an event first.');
+  const customBackground = $('displayBackgroundInput').value.trim();
+  const showClock = !!$('displayShowClockBox').checked;
+  const clockPosition = $('displayClockPositionSelect').value;
+  const res = await fetch(`/api/events/${currentEvent.id}/display/settings`, adminJsonOptions('POST', {
+    customBackground,
+    showClock,
+    clockPosition
+  }));
+  const data = await res.json();
+  if (!data.ok) return alert(data.error || 'Could not save main screen settings.');
+  currentEvent.displayState = data.displayState || currentEvent.displayState;
+  refreshDisplayControls();
+  setStatus('Main screen settings saved.');
+}
+
+async function clearSongFromScreen() {
+  if (!currentEvent) return alert('Open or create an event first.');
+  const res = await fetch(`/api/events/${currentEvent.id}/song/clear`, adminJsonOptions('POST'));
+  const data = await res.json();
+  if (!data.ok) return alert(data.error || 'Could not clear screen.');
+  currentEvent = data.event || currentEvent;
+  renderActiveEventBadge(currentEvent);
+  renderSongState(currentEvent.songState || {});
+  refreshDisplayControls();
+  setStatus('Song mode cleared from screen.');
+}
+
+async function saveSongLabels() {
+  if (!currentEvent || currentEvent.mode !== 'song') return;
+  const labels = getSongEditorLabels();
+  const res = await fetch(`/api/events/${currentEvent.id}/song/labels`, adminJsonOptions('POST', { labels }));
+  const data = await res.json();
+  if (!data.ok) return;
+  currentEvent.songState = data.songState || currentEvent.songState;
 }
 
 async function openEventById(eventId) {
@@ -1016,15 +1125,20 @@ socket.on('song_state', (songState) => {
 });
 socket.on('song_clear', () => {
   if (!currentEvent) return;
-  currentEvent.songState = { title: '', blocks: [], currentIndex: -1, activeBlock: null, translations: {}, allTranslations: [], updatedAt: null };
+  currentEvent.songState = { title: '', blocks: [], blockLabels: [], currentIndex: -1, activeBlock: null, translations: {}, allTranslations: [], updatedAt: null };
   currentEvent.mode = 'live';
   renderSongState(currentEvent.songState);
   renderActiveEventBadge(currentEvent);
 });
-socket.on('display_mode_changed', ({ mode }) => {
+socket.on('display_mode_changed', ({ mode, theme, language, customBackground, showClock, clockPosition }) => {
   if (!currentEvent) return;
   currentEvent.displayState = currentEvent.displayState || {};
   currentEvent.displayState.mode = mode;
+  currentEvent.displayState.theme = theme || currentEvent.displayState.theme || 'dark';
+  currentEvent.displayState.language = language || currentEvent.displayState.language;
+  currentEvent.displayState.customBackground = typeof customBackground === 'string' ? customBackground : (currentEvent.displayState.customBackground || '');
+  currentEvent.displayState.showClock = typeof showClock === 'boolean' ? showClock : !!currentEvent.displayState.showClock;
+  currentEvent.displayState.clockPosition = clockPosition || currentEvent.displayState.clockPosition || 'top-right';
   refreshDisplayControls();
   renderActiveEventBadge(currentEvent);
 });
@@ -1102,7 +1216,6 @@ $('startRecognitionBtn').addEventListener('click', startTranslation);
 $('stopRecognitionBtn').addEventListener('click', stopTranslation);
 $('copyParticipantBtn').addEventListener('click', () => copyField('participantLink', 'copyParticipantBtn'));
 $('copyTranslateBtn').addEventListener('click', () => copyField('translateLink', 'copyTranslateBtn'));
-$('copySongBtn').addEventListener('click', () => copyField('songLink', 'copySongBtn'));
 $('copyQrBtn').addEventListener('click', copyQrImage);
 $('downloadQrBtn').addEventListener('click', downloadQr);
 $('setActiveEventBtn').addEventListener('click', setActiveEvent);
@@ -1117,9 +1230,12 @@ $('saveGlobalSongBtn').addEventListener('click', saveSongToGlobalLibrary);
 $('sendSongBtn').addEventListener('click', sendSongToLive);
 $('songPrevBtn').addEventListener('click', goToPrevSongBlock);
 $('songNextBtn').addEventListener('click', goToNextSongBlock);
+$('clearSongScreenBtn').addEventListener('click', clearSongFromScreen);
 $('displayAutoBtn').addEventListener('click', () => setDisplayMode('auto'));
 $('displayManualBtn').addEventListener('click', () => setDisplayMode('manual'));
 $('displayThemeSelect').addEventListener('change', () => setDisplayTheme($('displayThemeSelect').value));
+$('displayLanguageSelect').addEventListener('change', () => setDisplayLanguage($('displayLanguageSelect').value));
+$('saveDisplaySettingsBtn').addEventListener('click', saveDisplaySettings);
 $('songLibrarySearch').addEventListener('input', () => renderSongLibrary(currentEvent?.songLibrary || []));
 $('songLibrarySort').addEventListener('change', () => renderSongLibrary(currentEvent?.songLibrary || []));
 $('globalSongLibrarySearch').addEventListener('input', () => renderGlobalSongLibrary(currentGlobalSongLibrary));
@@ -1131,9 +1247,13 @@ $('songBlocksList').addEventListener('click', async (e) => {
   if (!Number.isInteger(index)) return;
   await showSongBlock(index);
 });
+$('songBlocksList').addEventListener('change', async (e) => {
+  if (!e.target.matches('[data-song-label-input]')) return;
+  await saveSongLabels();
+});
 $('globalSongLibraryList').addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-global-song-action]');
-  if (!btn || !currentEvent) return;
+  if (!btn) return;
   const action = btn.getAttribute('data-global-song-action');
   const songId = btn.getAttribute('data-global-song-id');
   const item = currentGlobalSongLibrary.find((x) => x.id === songId);
@@ -1144,11 +1264,13 @@ $('globalSongLibraryList').addEventListener('click', async (e) => {
     return;
   }
   if (action === 'send') {
+    if (!currentEvent) return alert('Open or create an event first.');
     fillSongEditor(item);
     await sendSongItemToLive(item);
     return;
   }
   if (action === 'add') {
+    if (!currentEvent) return alert('Open or create an event first.');
     const res = await fetch(`/api/events/${currentEvent.id}/global-song-library/${songId}/add-to-event`, adminJsonOptions('POST'));
     const data = await res.json();
     if (!data.ok) return alert(data.error || 'Could not add item to event.');
@@ -1159,7 +1281,7 @@ $('globalSongLibraryList').addEventListener('click', async (e) => {
   }
   if (action === 'delete') {
     if (!confirm('Delete this song from church library?')) return;
-    const res = await fetch(`/api/events/${currentEvent.id}/global-song-library/${songId}`, adminJsonOptions('DELETE'));
+    const res = await fetch(`/api/global-song-library/${songId}`, globalJsonOptions('DELETE'));
     const data = await res.json();
     if (!data.ok) return alert(data.error || 'Could not delete item.');
     currentGlobalSongLibrary = data.globalSongLibrary || [];
@@ -1188,7 +1310,6 @@ $('songLibraryList').addEventListener('click', async (e) => {
   }
 });
 $('openTranslateScreenBtn').addEventListener('click', () => { const url = $('translateLink').value || '/translate'; if (url) window.open(url, '_blank'); });
-$('openSongScreenBtn').addEventListener('click', () => { const url = $('songLink').value || '/song'; if (url) window.open(url, '_blank'); });
 $('eventList').addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
@@ -1220,8 +1341,10 @@ $('eventList').addEventListener('click', async (e) => {
     if (data.ok) {
       if (currentEvent?.id === id) {
         currentEvent = null;
-        $('adminCode').textContent = '-'; $('participantLink').value = ''; $('translateLink').value = ''; $('songLink').value = '';
+        $('adminCode').textContent = '-'; $('participantLink').value = ''; $('translateLink').value = '';
         $('qrImage').src = ''; $('transcriptList').innerHTML = ''; renderActiveEventBadge(null); resetParticipantStats();
+        renderSongState({});
+        refreshDisplayControls();
       }
       await refreshEventList();
     }
@@ -1245,6 +1368,7 @@ window.addEventListener('load', async () => {
   updateMonitorGain();
   setOnAirState(false);
   resetParticipantStats();
+  await loadGlobalSongLibrary();
   await refreshEventList();
   try {
     const res = await fetch('/api/events/active');

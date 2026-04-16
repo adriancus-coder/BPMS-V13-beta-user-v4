@@ -18,7 +18,7 @@
       <div class="info-card soft-card sidebar-meta-card">
         <div class="label">Service snapshot</div>
         <div id="openedEventBadge" class="metric-text">No event opened</div>
-        <div class="muted">Folosește tab-urile pentru a trece rapid între live control, transcript, events și text pregătit.</div>
+        <div class="muted">Folosește tab-urile pentru a trece rapid între live control, transcript, events și Song mode.</div>
       </div>
 
       <nav class="sidebar-nav">
@@ -34,10 +34,6 @@
         <a class="screen-link-card" href="/translate" target="_blank" rel="noreferrer">
           <span class="screen-link-title">Main Screen</span>
           <span class="screen-link-copy">Ecranul unificat pentru live translate și Song mode.</span>
-        </a>
-        <a class="screen-link-card" href="/song" target="_blank" rel="noreferrer">
-          <span class="screen-link-title">Song Mode Screen</span>
-          <span class="screen-link-copy">Același ecran public, deschis direct în varianta pentru Song mode.</span>
         </a>
         <a class="screen-link-card" href="/participant" target="_blank" rel="noreferrer">
           <span class="screen-link-title">Participant Phone View</span>
@@ -66,7 +62,6 @@
             <span class="hero-status-label">Quick screens</span>
             <div class="actions">
               <button id="openTranslateScreenBtn" class="btn btn-dark" type="button">Open main screen</button>
-              <button id="openSongScreenBtn" class="btn btn-dark" type="button">Open song mode screen</button>
             </div>
           </div>
         </div>
@@ -229,14 +224,6 @@
               </div>
             </div>
 
-            <div class="link-stack">
-              <label>Song mode screen link</label>
-              <div class="link-row">
-                <input id="songLink" type="text" readonly>
-                <button id="copySongBtn" class="btn btn-dark">Copy</button>
-              </div>
-            </div>
-
             <div class="button-row">
               <button id="setActiveEventBtn" class="btn btn-primary">Set live event</button>
             </div>
@@ -270,30 +257,45 @@
             <div class="button-row compact-row">
               <button id="displayAutoBtn" class="btn btn-dark" type="button">Display auto</button>
               <button id="displayManualBtn" class="btn btn-primary" type="button">Display manual</button>
+              <button id="clearSongScreenBtn" class="btn btn-danger" type="button">Clear from screen</button>
+            </div>
+            <div class="button-row compact-row">
               <select id="displayThemeSelect">
                 <option value="dark" selected>White on black</option>
                 <option value="light">Black on white</option>
               </select>
+              <select id="displayLanguageSelect"></select>
+            </div>
+            <div class="button-row compact-row">
+              <input id="displayBackgroundInput" type="text" placeholder="Custom background image URL">
+              <select id="displayClockPositionSelect">
+                <option value="top-right" selected>Clock top right</option>
+                <option value="top-left">Clock top left</option>
+                <option value="bottom-right">Clock bottom right</option>
+                <option value="bottom-left">Clock bottom left</option>
+              </select>
+              <label class="inline-check"><input id="displayShowClockBox" type="checkbox"> Show clock</label>
+              <button id="saveDisplaySettingsBtn" class="btn btn-dark" type="button">Save screen settings</button>
             </div>
             <label>Title</label>
             <input id="songTitle" type="text" placeholder="Amazing Grace">
-            <label>Song text or prepared lyrics</label>
-            <textarea id="songText" class="song-textarea" placeholder="Paste song lyrics, chorus, prayer, announcement or prepared text here."></textarea>
+            <label>Song text or lyrics</label>
+            <textarea id="songText" class="song-textarea" placeholder="Paste song lyrics, chorus, prayer, announcement or other lyrics here."></textarea>
             <div class="button-row">
               <button id="saveSongBtn" class="btn btn-dark">Save in library</button>
               <button id="saveGlobalSongBtn" class="btn btn-dark">Save to church library</button>
-              <button id="sendSongBtn" class="btn btn-primary">Send first stanza live</button>
+              <button id="sendSongBtn" class="btn btn-primary">Send first verse live</button>
             </div>
             <div class="button-row compact-row">
-              <button id="songPrevBtn" class="btn btn-dark" type="button">Prev stanza</button>
-              <button id="songNextBtn" class="btn btn-dark" type="button">Next stanza</button>
+              <button id="songPrevBtn" class="btn btn-dark" type="button">Prev verse</button>
+              <button id="songNextBtn" class="btn btn-dark" type="button">Next verse</button>
             </div>
             <div class="info-card soft-card">
               <div class="label">Display preview</div>
               <div id="songPreview" class="song-preview">Song mode text will appear here.</div>
             </div>
             <div id="songBlocksList" class="history-list">
-              <div class="muted">Use Save in library or Send live + display.</div>
+              <div class="muted">Use Save in library or Send first verse live.</div>
             </div>
           </div>
 

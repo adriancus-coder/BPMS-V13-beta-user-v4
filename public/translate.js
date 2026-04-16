@@ -9,6 +9,9 @@ const state = {
   currentLanguage: params.get('lang') || 'no',
   currentDisplayMode: 'auto',
   currentTheme: 'dark',
+  customBackground: '',
+  showClock: false,
+  clockPosition: 'top-right',
   manualTranslations: {},
   latestLiveEntry: null,
   songState: null
@@ -51,6 +54,36 @@ function syncLanguageOptions(event) {
 function applyDisplayTheme(theme) {
   document.body.classList.remove('display-theme-dark', 'display-theme-light');
   document.body.classList.add(theme === 'light' ? 'display-theme-light' : 'display-theme-dark');
+}
+
+function applyDisplaySettings() {
+  const wrap = $('translateTextWrap');
+  const clock = $('displayClock');
+  if (wrap) {
+    if (state.customBackground) {
+      const overlay = state.currentTheme === 'light'
+        ? 'linear-gradient(rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0.45))'
+        : 'linear-gradient(rgba(12, 18, 28, 0.45), rgba(12, 18, 28, 0.45))';
+      wrap.style.backgroundImage = `${overlay}, url("${state.customBackground.replaceAll('"', '%22')}")`;
+      wrap.style.backgroundSize = 'cover';
+      wrap.style.backgroundPosition = 'center';
+    } else {
+      wrap.style.backgroundImage = '';
+      wrap.style.backgroundSize = '';
+      wrap.style.backgroundPosition = '';
+    }
+  }
+  if (clock) {
+    clock.style.display = state.showClock && !document.fullscreenElement ? 'block' : 'none';
+    clock.className = `display-clock clock-${state.clockPosition || 'top-right'}`;
+  }
+}
+
+function updateClock() {
+  const clock = $('displayClock');
+  if (!clock) return;
+  const now = new Date();
+  clock.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 function getTextToDisplay() {
@@ -97,6 +130,8 @@ function renderDisplay() {
   $('translateText').textContent = getTextToDisplay();
   updateMeta();
   applyDisplayTheme(state.currentTheme);
+  applyDisplaySettings();
+  updateClock();
   requestAnimationFrame(autoFitText);
 }
 
@@ -136,13 +171,6 @@ async function joinEvent() {
 }
 
 function handleLanguageChange() {
-  state.currentLanguage = $('translateLanguage').value;
-  if (state.currentEvent?.id) {
-    socket.emit('participant_language', {
-      eventId: state.currentEvent.id,
-      language: state.currentLanguage
-    });
-  }
   renderDisplay();
 }
 
@@ -158,6 +186,10 @@ socket.on('joined_event', ({ event, languageNames }) => {
   state.currentEvent = event;
   state.currentDisplayMode = event.displayState?.mode || 'auto';
   state.currentTheme = event.displayState?.theme || 'dark';
+  state.currentLanguage = event.displayState?.language || state.currentLanguage;
+  state.customBackground = event.displayState?.customBackground || '';
+  state.showClock = !!event.displayState?.showClock;
+  state.clockPosition = event.displayState?.clockPosition || 'top-right';
   state.manualTranslations = event.displayState?.manualTranslations || {};
   state.songState = event.songState || null;
   state.latestLiveEntry = (event.transcripts || [])
@@ -211,10 +243,15 @@ socket.on('transcript_source_updated', (payload) => {
   renderDisplay();
 });
 
-socket.on('display_mode_changed', ({ mode, theme, manualTranslations }) => {
+socket.on('display_mode_changed', ({ mode, theme, language, customBackground, showClock, clockPosition, manualTranslations }) => {
   state.currentDisplayMode = mode || 'auto';
   state.currentTheme = theme || state.currentTheme || 'dark';
+  state.currentLanguage = language || state.currentLanguage;
+  state.customBackground = typeof customBackground === 'string' ? customBackground : state.customBackground;
+  state.showClock = typeof showClock === 'boolean' ? showClock : state.showClock;
+  state.clockPosition = clockPosition || state.clockPosition;
   state.manualTranslations = manualTranslations || state.manualTranslations || {};
+  if ($('translateLanguage')) $('translateLanguage').value = state.currentLanguage;
   renderDisplay();
 });
 
@@ -223,8 +260,13 @@ socket.on('display_theme_changed', ({ theme }) => {
   renderDisplay();
 });
 
-socket.on('display_manual_update', ({ mode, manualTranslations }) => {
+socket.on('display_manual_update', ({ mode, theme, language, customBackground, showClock, clockPosition, manualTranslations }) => {
   state.currentDisplayMode = mode || 'manual';
+  state.currentTheme = theme || state.currentTheme || 'dark';
+  state.currentLanguage = language || state.currentLanguage;
+  state.customBackground = typeof customBackground === 'string' ? customBackground : state.customBackground;
+  state.showClock = typeof showClock === 'boolean' ? showClock : state.showClock;
+  state.clockPosition = clockPosition || state.clockPosition;
   state.manualTranslations = manualTranslations || {};
   renderDisplay();
 });
@@ -238,6 +280,7 @@ $('fullscreenBtn')?.addEventListener('click', enterFullscreen);
 window.addEventListener('resize', autoFitText);
 document.addEventListener('fullscreenchange', () => {
   document.body.classList.toggle('display-fullscreen', !!document.fullscreenElement);
+  applyDisplaySettings();
   autoFitText();
 });
 
@@ -247,4 +290,6 @@ window.addEventListener('load', async () => {
     const data = await res.json();
     availableLanguages = data.languages || {};
   } catch (_) {}
+  updateClock();
+  window.setInterval(updateClock, 1000);
 });
