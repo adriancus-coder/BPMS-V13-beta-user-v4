@@ -1103,6 +1103,7 @@ app.post('/api/events/:id/song/labels', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
   if (!requireEventAdmin(req, res, event)) return;
+  const labels = Array.isArray(req.body.labels) ? req.body.labels : [];
   const blocks = Array.isArray(event.songState?.blocks) ? event.songState.blocks : [];
   event.songState = event.songState || defaultSongState();
   event.songState.blockLabels = buildBlockLabels(blocks, labels);
@@ -1358,6 +1359,7 @@ app.post('/api/events/:id/song-library', (req, res) => {
 
   const title = String(req.body.title || '').trim();
   const text = sanitizeStructuredText(req.body.text || '');
+  const labels = Array.isArray(req.body.labels) ? req.body.labels : [];
 
   if (!title || !text) {
     return res.status(400).json({ ok: false, error: 'Titlu sau text lipsă.' });
@@ -1425,6 +1427,7 @@ app.post('/api/events/:id/global-song-library', (req, res) => {
 
   const title = String(req.body.title || '').trim();
   const text = sanitizeStructuredText(req.body.text || '');
+  const labels = Array.isArray(req.body.labels) ? req.body.labels : [];
 
   if (!title || !text) {
     return res.status(400).json({ ok: false, error: 'Titlu sau text lipsÄƒ.' });
