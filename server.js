@@ -178,6 +178,7 @@ function defaultDb() {
 }
 
 function loadDb() {
+  const labels = Array.isArray(req.body.labels) ? req.body.labels : [];
   try {
     ensureDataDir();
     if (!fs.existsSync(DB_FILE)) {
