@@ -103,6 +103,7 @@ function defaultSongState() {
   return {
     title: '',
     blocks: [],
+    blockLabels: [],
     currentIndex: -1,
     activeBlock: null,
     translations: {},
@@ -116,6 +117,10 @@ function defaultDisplayState() {
   return {
     mode: 'auto',
     theme: 'dark',
+    language: 'no',
+    customBackground: '',
+    showClock: false,
+    clockPosition: 'top-right',
     manualSource: '',
     manualTranslations: {},
     updatedAt: null
@@ -141,11 +146,30 @@ function ensureEventUiState(event) {
   if (!['dark', 'light'].includes(event.displayState.theme)) {
     event.displayState.theme = 'dark';
   }
+  if (!Array.isArray(event.targetLangs) || !event.targetLangs.length) {
+    event.targetLangs = ['no', 'en'];
+  }
+  if (!event.displayState.language || !event.targetLangs.includes(event.displayState.language)) {
+    event.displayState.language = event.targetLangs[0] || 'no';
+  }
+  if (typeof event.displayState.customBackground !== 'string') {
+    event.displayState.customBackground = '';
+  }
+  event.displayState.showClock = !!event.displayState.showClock;
+  if (!['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(event.displayState.clockPosition)) {
+    event.displayState.clockPosition = 'top-right';
+  }
   if (!Array.isArray(event.songLibrary)) {
     event.songLibrary = defaultSongLibrary();
   }
   if (!Array.isArray(event.songHistory)) {
     event.songHistory = defaultSongHistory();
+  }
+  if (!event.songState || typeof event.songState !== 'object') {
+    event.songState = defaultSongState();
+  }
+  if (!Array.isArray(event.songState.blockLabels)) {
+    event.songState.blockLabels = [];
   }
 }
 
@@ -415,15 +439,18 @@ function normalizeLibraryTitle(title) {
   return String(title || '').trim().toLowerCase();
 }
 
-function upsertLibraryItem(list, { title, text }, maxItems = 100) {
+function upsertLibraryItem(list, { title, text, labels }, maxItems = 100) {
   const safeTitle = String(title || '').trim();
   const safeText = sanitizeStructuredText(text || '');
+  const blocks = splitSongBlocks(safeText);
+  const safeLabels = buildBlockLabels(blocks, labels || []);
   const normalizedTitle = normalizeLibraryTitle(safeTitle);
   const existingIndex = list.findIndex((item) => normalizeLibraryTitle(item.title) === normalizedTitle);
   const payload = {
     id: existingIndex >= 0 ? list[existingIndex].id : randomUUID(),
     title: safeTitle,
     text: safeText,
+    labels: safeLabels,
     updatedAt: new Date().toISOString()
   };
 
@@ -481,7 +508,7 @@ async function createEvent({ name, speed, sourceLang, targetLangs, baseUrl, sche
     lastTranscriptNorm: '',
     mode: 'live',
     songState: defaultSongState(),
-    displayState: defaultDisplayState(),
+    displayState: { ...defaultDisplayState(), language: (targetLangs?.length ? targetLangs[0] : 'no') },
     songLibrary: defaultSongLibrary(),
     songHistory: defaultSongHistory()
   };
@@ -857,6 +884,13 @@ function splitSongBlocks(text) {
     .filter(Boolean);
 }
 
+function buildBlockLabels(blocks, labels = []) {
+  return blocks.map((_, index) => {
+    const provided = String(labels[index] || '').trim();
+    return provided || `Verse ${index + 1}`;
+  });
+}
+
 async function buildSongTranslations(event, blocks) {
   const allTranslations = [];
   for (const block of blocks) {
@@ -872,6 +906,7 @@ function setSongIndex(event, index) {
   const songState = event.songState || defaultSongState();
   const blocks = Array.isArray(songState.blocks) ? songState.blocks : [];
   const allTranslations = Array.isArray(songState.allTranslations) ? songState.allTranslations : [];
+  songState.blockLabels = buildBlockLabels(blocks, songState.blockLabels || []);
   if (!Number.isInteger(index) || index < 0 || index >= blocks.length) return false;
   songState.currentIndex = index;
   songState.activeBlock = blocks[index] || null;
@@ -1026,7 +1061,7 @@ app.post('/api/events/:id/song/load', async (req, res) => {
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
   if (!requireEventAdmin(req, res, event)) return;
   const title = String(req.body.title || '').trim();
-  const text = String(req.body.text || '').trim();
+  const text = sanitizeStructuredText(req.body.text || '');
   if (!text) return res.status(400).json({ ok: false, error: 'Text lipsă.' });
   try {
     const blocks = splitSongBlocks(text);
@@ -1034,6 +1069,7 @@ app.post('/api/events/:id/song/load', async (req, res) => {
     event.songState = {
       title,
       blocks,
+      blockLabels: buildBlockLabels(blocks, labels),
       currentIndex: blocks.length ? 0 : -1,
       activeBlock: blocks[0] || null,
       translations: allTranslations[0] || {},
@@ -1057,6 +1093,18 @@ app.post('/api/events/:id/song/show/:index', (req, res) => {
   if (!requireEventAdmin(req, res, event)) return;
   const index = Number(req.params.index);
   if (!setSongIndex(event, index)) return res.status(400).json({ ok: false, error: 'Index invalid.' });
+  saveDb();
+  io.to(`event:${event.id}`).emit('song_state', event.songState);
+  res.json({ ok: true, songState: event.songState });
+});
+
+app.post('/api/events/:id/song/labels', (req, res) => {
+  const event = db.events[req.params.id];
+  if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
+  if (!requireEventAdmin(req, res, event)) return;
+  const blocks = Array.isArray(event.songState?.blocks) ? event.songState.blocks : [];
+  event.songState = event.songState || defaultSongState();
+  event.songState.blockLabels = buildBlockLabels(blocks, labels);
   saveDb();
   io.to(`event:${event.id}`).emit('song_state', event.songState);
   res.json({ ok: true, songState: event.songState });
@@ -1095,7 +1143,17 @@ app.post('/api/events/:id/song/clear', (req, res) => {
   saveDb();
   io.to(`event:${event.id}`).emit('song_clear');
   io.to(`event:${event.id}`).emit('mode_changed', { mode: 'live' });
-  io.to(`event:${event.id}`).emit('display_mode_changed', { mode: 'auto', theme: event.displayState.theme, manualSource: event.displayState.manualSource, manualTranslations: event.displayState.manualTranslations, updatedAt: event.displayState.updatedAt });
+  io.to(`event:${event.id}`).emit('display_mode_changed', {
+    mode: 'auto',
+    theme: event.displayState.theme,
+    language: event.displayState.language,
+    customBackground: event.displayState.customBackground,
+    showClock: event.displayState.showClock,
+    clockPosition: event.displayState.clockPosition,
+    manualSource: event.displayState.manualSource,
+    manualTranslations: event.displayState.manualTranslations,
+    updatedAt: event.displayState.updatedAt
+  });
   res.json({ ok: true, event: normalizeEvent(event) });
 });
 
@@ -1119,6 +1177,10 @@ app.post('/api/events/:id/display/mode', (req, res) => {
   io.to(`event:${event.id}`).emit('display_mode_changed', {
     mode: event.displayState.mode,
     theme: event.displayState.theme,
+    language: event.displayState.language,
+    customBackground: event.displayState.customBackground,
+    showClock: event.displayState.showClock,
+    clockPosition: event.displayState.clockPosition,
     manualSource: event.displayState.manualSource,
     manualTranslations: event.displayState.manualTranslations,
     updatedAt: event.displayState.updatedAt
@@ -1149,11 +1211,71 @@ app.post('/api/events/:id/display/theme', (req, res) => {
   io.to(`event:${event.id}`).emit('display_mode_changed', {
     mode: event.displayState.mode,
     theme: event.displayState.theme,
+    language: event.displayState.language,
+    customBackground: event.displayState.customBackground,
+    showClock: event.displayState.showClock,
+    clockPosition: event.displayState.clockPosition,
     manualSource: event.displayState.manualSource,
     manualTranslations: event.displayState.manualTranslations,
     updatedAt: event.displayState.updatedAt
   });
 
+  res.json({ ok: true, displayState: event.displayState });
+});
+
+app.post('/api/events/:id/display/language', (req, res) => {
+  const event = db.events[req.params.id];
+  if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
+  if (!requireEventAdmin(req, res, event)) return;
+  ensureEventUiState(event);
+  const language = String(req.body.language || '').trim();
+  if (!event.targetLangs.includes(language)) {
+    return res.status(400).json({ ok: false, error: 'Limba invalida pentru ecran.' });
+  }
+  event.displayState.language = language;
+  event.displayState.updatedAt = new Date().toISOString();
+  saveDb();
+  io.to(`event:${event.id}`).emit('display_mode_changed', {
+    mode: event.displayState.mode,
+    theme: event.displayState.theme,
+    language: event.displayState.language,
+    customBackground: event.displayState.customBackground,
+    showClock: event.displayState.showClock,
+    clockPosition: event.displayState.clockPosition,
+    manualSource: event.displayState.manualSource,
+    manualTranslations: event.displayState.manualTranslations,
+    updatedAt: event.displayState.updatedAt
+  });
+  res.json({ ok: true, displayState: event.displayState });
+});
+
+app.post('/api/events/:id/display/settings', (req, res) => {
+  const event = db.events[req.params.id];
+  if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
+  if (!requireEventAdmin(req, res, event)) return;
+  ensureEventUiState(event);
+  const customBackground = typeof req.body.customBackground === 'string' ? req.body.customBackground.trim() : event.displayState.customBackground;
+  const showClock = typeof req.body.showClock === 'boolean' ? req.body.showClock : event.displayState.showClock;
+  const clockPosition = typeof req.body.clockPosition === 'string' ? req.body.clockPosition.trim() : event.displayState.clockPosition;
+  if (!['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(clockPosition)) {
+    return res.status(400).json({ ok: false, error: 'Pozitie ceas invalida.' });
+  }
+  event.displayState.customBackground = customBackground;
+  event.displayState.showClock = !!showClock;
+  event.displayState.clockPosition = clockPosition;
+  event.displayState.updatedAt = new Date().toISOString();
+  saveDb();
+  io.to(`event:${event.id}`).emit('display_mode_changed', {
+    mode: event.displayState.mode,
+    theme: event.displayState.theme,
+    language: event.displayState.language,
+    customBackground: event.displayState.customBackground,
+    showClock: event.displayState.showClock,
+    clockPosition: event.displayState.clockPosition,
+    manualSource: event.displayState.manualSource,
+    manualTranslations: event.displayState.manualTranslations,
+    updatedAt: event.displayState.updatedAt
+  });
   res.json({ ok: true, displayState: event.displayState });
 });
 
@@ -1191,6 +1313,7 @@ app.post('/api/events/:id/display/manual', async (req, res) => {
     }
 
     event.displayState = {
+      ...event.displayState,
       mode: 'manual',
       manualSource: text,
       manualTranslations: translations,
@@ -1205,6 +1328,11 @@ app.post('/api/events/:id/display/manual', async (req, res) => {
     io.to(`event:${event.id}`).emit('transcript_entry', entry);
     io.to(`event:${event.id}`).emit('display_manual_update', {
       mode: event.displayState.mode,
+      theme: event.displayState.theme,
+      language: event.displayState.language,
+      customBackground: event.displayState.customBackground,
+      showClock: event.displayState.showClock,
+      clockPosition: event.displayState.clockPosition,
       manualSource: event.displayState.manualSource,
       manualTranslations: event.displayState.manualTranslations,
       updatedAt: event.displayState.updatedAt
@@ -1234,7 +1362,7 @@ app.post('/api/events/:id/song-library', (req, res) => {
     return res.status(400).json({ ok: false, error: 'Titlu sau text lipsă.' });
   }
 
-  upsertLibraryItem(event.songLibrary, { title, text }, 100);
+  upsertLibraryItem(event.songLibrary, { title, text, labels }, 100);
 
   saveDb();
   res.json({ ok: true, songLibrary: event.songLibrary });
@@ -1260,6 +1388,28 @@ app.delete('/api/events/:id/song-library/:songId', (req, res) => {
   res.json({ ok: true, songLibrary: event.songLibrary });
 });
 
+app.get('/api/global-song-library', (req, res) => {
+  res.json({ ok: true, globalSongLibrary: Array.isArray(db.globalSongLibrary) ? db.globalSongLibrary : [] });
+});
+
+app.post('/api/global-song-library', (req, res) => {
+  const title = String(req.body.title || '').trim();
+  const text = sanitizeStructuredText(req.body.text || '');
+  const labels = Array.isArray(req.body.labels) ? req.body.labels : [];
+  if (!title || !text) {
+    return res.status(400).json({ ok: false, error: 'Titlu sau text lipsa.' });
+  }
+  upsertLibraryItem(db.globalSongLibrary, { title, text, labels }, 500);
+  saveDb();
+  res.json({ ok: true, globalSongLibrary: db.globalSongLibrary });
+});
+
+app.delete('/api/global-song-library/:songId', (req, res) => {
+  db.globalSongLibrary = (db.globalSongLibrary || []).filter((item) => item.id !== req.params.songId);
+  saveDb();
+  res.json({ ok: true, globalSongLibrary: db.globalSongLibrary });
+});
+
 app.get('/api/events/:id/global-song-library', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
@@ -1279,7 +1429,7 @@ app.post('/api/events/:id/global-song-library', (req, res) => {
     return res.status(400).json({ ok: false, error: 'Titlu sau text lipsÄƒ.' });
   }
 
-  upsertLibraryItem(db.globalSongLibrary, { title, text }, 500);
+  upsertLibraryItem(db.globalSongLibrary, { title, text, labels }, 500);
   saveDb();
   res.json({ ok: true, globalSongLibrary: db.globalSongLibrary });
 });
@@ -1295,7 +1445,7 @@ app.post('/api/events/:id/global-song-library/:songId/add-to-event', (req, res) 
     return res.status(404).json({ ok: false, error: 'Cantarea nu exista in biblioteca generala.' });
   }
 
-  upsertLibraryItem(event.songLibrary, { title: item.title, text: item.text }, 100);
+  upsertLibraryItem(event.songLibrary, { title: item.title, text: item.text, labels: item.labels || [] }, 100);
   saveDb();
   res.json({ ok: true, songLibrary: event.songLibrary, globalSongLibrary: db.globalSongLibrary });
 });
