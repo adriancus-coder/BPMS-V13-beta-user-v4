@@ -178,7 +178,6 @@ function defaultDb() {
 }
 
 function loadDb() {
-  const labels = Array.isArray(req.body.labels) ? req.body.labels : [];
   try {
     ensureDataDir();
     if (!fs.existsSync(DB_FILE)) {
@@ -1063,6 +1062,7 @@ app.post('/api/events/:id/song/load', async (req, res) => {
   if (!requireEventAdmin(req, res, event)) return;
   const title = String(req.body.title || '').trim();
   const text = sanitizeStructuredText(req.body.text || '');
+  const labels = Array.isArray(req.body.labels) ? req.body.labels : [];
   if (!text) return res.status(400).json({ ok: false, error: 'Text lipsă.' });
   try {
     const blocks = splitSongBlocks(text);
