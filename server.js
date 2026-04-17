@@ -131,6 +131,10 @@ function defaultDisplayState() {
   };
 }
 
+function defaultDisplayPresets() {
+  return [];
+}
+
 function defaultSongLibrary() {
   return [];
 }
@@ -178,6 +182,9 @@ function ensureEventUiState(event) {
   }
   if (!Array.isArray(event.songHistory)) {
     event.songHistory = defaultSongHistory();
+  }
+  if (!Array.isArray(event.displayPresets)) {
+    event.displayPresets = defaultDisplayPresets();
   }
   if (!event.songState || typeof event.songState !== 'object') {
     event.songState = defaultSongState();
@@ -444,6 +451,7 @@ function normalizeEvent(event) {
     mode: event.mode || 'live',
     songState: event.songState || defaultSongState(),
     displayState: event.displayState || defaultDisplayState(),
+    displayPresets: Array.isArray(event.displayPresets) ? event.displayPresets : [],
     songLibrary: Array.isArray(event.songLibrary) ? event.songLibrary : [],
     songHistory: Array.isArray(event.songHistory) ? event.songHistory : []
   };
@@ -464,7 +472,33 @@ function buildDisplayPayload(event) {
     screenStyle: event.displayState.screenStyle,
     manualSource: event.displayState.manualSource,
     manualTranslations: event.displayState.manualTranslations,
-    updatedAt: event.displayState.updatedAt
+    updatedAt: event.displayState.updatedAt,
+    presets: Array.isArray(event.displayPresets) ? event.displayPresets : []
+  };
+}
+
+function normalizeDisplayPreset(input = {}) {
+  const name = String(input.name || '').trim();
+  if (!name) return null;
+  const mode = ['auto', 'manual', 'song'].includes(input.mode) ? input.mode : 'auto';
+  const theme = ['dark', 'light'].includes(input.theme) ? input.theme : 'dark';
+  const backgroundPreset = ['none', 'warm', 'sanctuary', 'soft-light'].includes(input.backgroundPreset) ? input.backgroundPreset : 'none';
+  const clockPosition = ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(input.clockPosition) ? input.clockPosition : 'top-right';
+  const textSize = ['compact', 'large', 'xlarge'].includes(input.textSize) ? input.textSize : 'large';
+  const screenStyle = ['focus', 'wide'].includes(input.screenStyle) ? input.screenStyle : 'focus';
+  return {
+    id: input.id || randomUUID(),
+    name,
+    mode,
+    theme,
+    language: String(input.language || 'no').trim() || 'no',
+    backgroundPreset,
+    customBackground: typeof input.customBackground === 'string' ? input.customBackground.trim() : '',
+    showClock: !!input.showClock,
+    clockPosition,
+    textSize,
+    screenStyle,
+    updatedAt: new Date().toISOString()
   };
 }
 
@@ -1300,6 +1334,83 @@ app.post('/api/events/:id/display/settings', (req, res) => {
   saveDb();
   io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
   res.json({ ok: true, displayState: event.displayState });
+});
+
+app.get('/api/events/:id/display-presets', (req, res) => {
+  const event = db.events[req.params.id];
+  if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
+  ensureEventUiState(event);
+  res.json({ ok: true, presets: event.displayPresets });
+});
+
+app.post('/api/events/:id/display-presets', (req, res) => {
+  const event = db.events[req.params.id];
+  if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
+  if (!requireEventAdmin(req, res, event)) return;
+  ensureEventUiState(event);
+
+  const preset = normalizeDisplayPreset(req.body || {});
+  if (!preset) {
+    return res.status(400).json({ ok: false, error: 'Numele presetului lipseste.' });
+  }
+  if (!event.targetLangs.includes(preset.language)) {
+    preset.language = event.targetLangs[0] || 'no';
+  }
+
+  const existingIndex = event.displayPresets.findIndex((item) => String(item.name || '').toLowerCase() === preset.name.toLowerCase());
+  if (existingIndex >= 0) {
+    preset.id = event.displayPresets[existingIndex].id;
+    event.displayPresets[existingIndex] = preset;
+  } else {
+    event.displayPresets.unshift(preset);
+  }
+  if (event.displayPresets.length > 12) {
+    event.displayPresets = event.displayPresets.slice(0, 12);
+  }
+  saveDb();
+  io.to(`event:${event.id}:admins`).emit('display_presets_updated', { presets: event.displayPresets });
+  res.json({ ok: true, presets: event.displayPresets });
+});
+
+app.post('/api/events/:id/display-presets/:presetId/apply', (req, res) => {
+  const event = db.events[req.params.id];
+  if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
+  if (!requireEventAdmin(req, res, event)) return;
+  ensureEventUiState(event);
+
+  const preset = event.displayPresets.find((item) => item.id === req.params.presetId);
+  if (!preset) {
+    return res.status(404).json({ ok: false, error: 'Preset inexistent.' });
+  }
+  if (preset.mode === 'song' && !event.songState?.activeBlock && !event.songState?.translations) {
+    return res.status(400).json({ ok: false, error: 'Presetul Song are nevoie de continut activ in Song mode.' });
+  }
+
+  event.displayState.mode = preset.mode;
+  event.displayState.blackScreen = false;
+  event.displayState.theme = preset.theme;
+  event.displayState.language = event.targetLangs.includes(preset.language) ? preset.language : (event.targetLangs[0] || 'no');
+  event.displayState.backgroundPreset = preset.backgroundPreset;
+  event.displayState.customBackground = preset.customBackground;
+  event.displayState.showClock = !!preset.showClock;
+  event.displayState.clockPosition = preset.clockPosition;
+  event.displayState.textSize = preset.textSize;
+  event.displayState.screenStyle = preset.screenStyle;
+  event.displayState.updatedAt = new Date().toISOString();
+  saveDb();
+  io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
+  res.json({ ok: true, displayState: event.displayState, presets: event.displayPresets });
+});
+
+app.delete('/api/events/:id/display-presets/:presetId', (req, res) => {
+  const event = db.events[req.params.id];
+  if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
+  if (!requireEventAdmin(req, res, event)) return;
+  ensureEventUiState(event);
+  event.displayPresets = event.displayPresets.filter((item) => item.id !== req.params.presetId);
+  saveDb();
+  io.to(`event:${event.id}:admins`).emit('display_presets_updated', { presets: event.displayPresets });
+  res.json({ ok: true, presets: event.displayPresets });
 });
 
 app.post('/api/events/:id/display/blank', (req, res) => {
