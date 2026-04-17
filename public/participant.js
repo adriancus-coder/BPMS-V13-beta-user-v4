@@ -26,7 +26,7 @@ function langLabel(code) {
 }
 
 function getOrCreateParticipantId() {
-  const key = 'bpms_participant_id';
+  const key = 'sanctuary_voice_participant_id';
   let id = localStorage.getItem(key);
   if (!id) {
     id = window.crypto?.randomUUID?.() || `p_${Math.random().toString(36).slice(2)}_${Date.now()}`;

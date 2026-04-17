@@ -402,7 +402,7 @@ function downloadQr() {
   if (!src) return;
   const a = document.createElement('a');
   a.href = src;
-  a.download = `bpms-qr-${Date.now()}.png`;
+  a.download = `sanctuary-voice-qr-${Date.now()}.png`;
   a.click();
 }
 
@@ -903,18 +903,18 @@ function openPreviewWindow(url, name, features) {
 
 function openMainPreviewWindow() {
   const url = $('translateLink')?.value || '/translate';
-  openPreviewWindow(url, 'bpmsMainPreview', 'width=1500,height=920,resizable=yes,scrollbars=yes');
+  openPreviewWindow(url, 'sanctuaryVoiceMainPreview', 'width=1500,height=920,resizable=yes,scrollbars=yes');
 }
 
 function openParticipantPreviewWindow() {
   const url = $('participantLink')?.value || '/participant';
-  openPreviewWindow(url, 'bpmsParticipantPreview', 'width=520,height=920,resizable=yes,scrollbars=yes');
+  openPreviewWindow(url, 'sanctuaryVoiceParticipantPreview', 'width=520,height=920,resizable=yes,scrollbars=yes');
 }
 
 function openBothPreviewWindows() {
   const mainUrl = $('translateLink')?.value || '/translate';
   const participantUrl = $('participantLink')?.value || '/participant';
-  const previewWindow = window.open('', 'bpmsDualPreview', 'width=1680,height=980,resizable=yes,scrollbars=yes');
+  const previewWindow = window.open('', 'sanctuaryVoiceDualPreview', 'width=1680,height=980,resizable=yes,scrollbars=yes');
   if (!previewWindow) return;
   previewWindow.document.open();
   previewWindow.document.write(`<!doctype html>
@@ -922,7 +922,7 @@ function openBothPreviewWindows() {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>BPMS Dual Preview</title>
+  <title>Sanctuary Voice Dual Preview</title>
   <style>
     :root {
       color-scheme: dark;
@@ -1020,7 +1020,7 @@ function openBothPreviewWindows() {
   <div class="shell">
     <div class="topbar">
       <div>
-        <div class="title">BPMS Live Preview Workspace</div>
+        <div class="title">Sanctuary Voice Preview Workspace</div>
         <div class="meta">Projector and participant view together in one window.</div>
       </div>
       <div class="meta">Resize or split this window as needed.</div>
