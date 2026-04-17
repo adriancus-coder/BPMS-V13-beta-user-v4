@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BPMS Operator Console</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell admin-redesign-shell">
+    <aside class="sidebar panel glass-panel">
+      <div class="brand-wrap">
+        <div class="eyebrow">BPMS Operator Console</div>
+        <div class="brand">Sanctuary Voice</div>
+        <div class="brand-sub">Traducere live pentru biserică, dintr-un singur centru de control pentru ecranul principal, phone view și Song mode.</div>
+      </div>
+
+      <div class="info-card soft-card sidebar-meta-card">
+        <div class="label">Service snapshot</div>
+        <div id="openedEventBadge" class="metric-text">No event opened</div>
+        <div class="muted">Folosește tab-urile pentru a trece rapid între live control, transcript, events și Song mode.</div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-btn active" data-tab="dashboard" type="button">Live Control</button>
+        <button class="nav-btn" data-tab="transcript" type="button">Transcript</button>
+        <button class="nav-btn" data-tab="events" type="button">Events</button>
+        <button class="nav-btn" data-tab="mainscreen" type="button">Main Screen</button>
+        <button class="nav-btn" data-tab="song" type="button">Song mode</button>
+        <button class="nav-btn" data-tab="glossary" type="button">Glossary</button>
+        <button class="nav-btn" data-tab="manual" type="button">Quick Text</button>
+      </nav>
+
+      <div class="sidebar-screen-links">
+        <a class="screen-link-card" href="/translate" target="_blank" rel="noreferrer">
+          <span class="screen-link-title">Main Screen</span>
+          <span class="screen-link-copy">Ecranul unificat pentru live translate și Song mode.</span>
+        </a>
+        <a class="screen-link-card" href="/participant" target="_blank" rel="noreferrer">
+          <span class="screen-link-title">Participant Phone View</span>
+          <span class="screen-link-copy">Experiența de telefon cu audio și istoric.</span>
+        </a>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <section class="topbar panel glass-panel hero-topbar">
+        <div class="hero-copy-block">
+          <div class="eyebrow">Unified service translation</div>
+          <h1>Operator Dashboard</h1>
+          <div class="muted">Controlezi de aici fluxul live, Song mode-ul și distribuția către sală și telefon.</div>
+        </div>
+        <div class="hero-status-grid">
+          <div class="hero-status-card">
+            <span class="hero-status-label">Public event</span>
+            <div id="activeEventBadge" class="status-pill">No live event</div>
+          </div>
+          <div class="hero-status-card">
+            <span class="hero-status-label">Recognition</span>
+            <div id="onAirBadge" class="status-pill">Off-Air</div>
+          </div>
+          <div class="hero-status-card quick-links-card">
+            <span class="hero-status-label">Quick screens</span>
+            <div class="actions">
+              <button id="openTranslateScreenBtn" class="btn btn-dark" type="button">Open main screen</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-dashboard" class="tab-panel active">
+        <div class="cards-grid three metrics-grid">
+          <div class="metric-card panel glass-panel">
+            <div class="metric-label">Partial transcript</div>
+            <div id="partialTranscript" class="metric-text">Waiting for full sentence...</div>
+          </div>
+          <div class="metric-card panel glass-panel">
+            <div class="metric-label">Participants</div>
+            <div id="participantStatsSummary" class="metric-number">0 unique participants</div>
+          </div>
+          <div class="metric-card panel glass-panel">
+            <div class="metric-label">Participant audio</div>
+            <div id="audioStateLabel" class="metric-text">Global audio active.</div>
+          </div>
+        </div>
+
+        <div class="cards-grid two dashboard-main-grid">
+          <div class="panel glass-panel section-stack control-card">
+            <div class="section-head">
+              <h2>Recognition Desk</h2>
+              <div id="recognitionStatus" class="status-text">Idle</div>
+            </div>
+
+            <div class="split-2">
+              <div>
+                <label>Translation mode</label>
+                <select id="speed">
+                  <option value="rapid">Rapid</option>
+                  <option value="balanced" selected>Balanced</option>
+                  <option value="clear">Clear</option>
+                </select>
+              </div>
+              <div>
+                <label>Audio input</label>
+                <select id="audioInput"></select>
+              </div>
+            </div>
+
+            <div class="info-card accent-card">
+              <div class="label">Signal monitor</div>
+              <progress id="audioLevel" value="0" max="100"></progress>
+              <div class="split-2">
+                <div>
+                  <label>Input gain</label>
+                  <input id="inputGainRange" class="range" type="range" min="0" max="400" value="100">
+                  <div id="inputGainLabel" class="muted">100%</div>
+                </div>
+                <div>
+                  <label>Monitor volume</label>
+                  <input id="monitorGainRange" class="range" type="range" min="0" max="400" value="0">
+                  <div id="monitorGainLabel" class="muted">0%</div>
+                </div>
+              </div>
+              <label class="inline-check monitor-row"><input type="checkbox" id="monitorAudioBox"> Monitor PC audio</label>
+            </div>
+
+            <div class="button-row spread-row">
+              <button id="startRecognitionBtn" class="btn btn-primary">Start live</button>
+              <button id="stopRecognitionBtn" class="btn btn-dark">Stop</button>
+              <button id="openTranscriptTabBtn" class="btn btn-dark" type="button">Open transcript</button>
+            </div>
+          </div>
+
+          <div class="panel glass-panel section-stack control-card">
+            <div class="section-head">
+              <h2>Live Session</h2>
+              <div class="live-chip">Service tools</div>
+            </div>
+
+            <div class="info-card accent-card">
+              <div class="label">Participant audio</div>
+              <div class="button-row compact-row">
+                <button id="muteGlobalBtn" class="btn btn-dark">Mute global</button>
+                <button id="panicBtn" class="btn btn-danger">Panic stop</button>
+              </div>
+              <label>General volume</label>
+              <input id="volumeRange" class="range" type="range" min="0" max="100" value="70">
+            </div>
+
+            <div class="info-card soft-card">
+              <div class="label">Participant languages</div>
+              <div id="participantStatsList" class="history-list"><div class="muted">No connected participant.</div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-transcript" class="tab-panel">
+        <div class="panel glass-panel section-stack transcript-shell">
+          <div class="section-head">
+            <h2>Transcript and live translations</h2>
+            <button id="jumpLiveBtn" class="btn btn-dark" type="button">Jump to latest</button>
+          </div>
+          <div id="transcriptList" class="transcript-list"></div>
+        </div>
+      </section>
+
+      <section id="tab-events" class="tab-panel">
+        <div class="cards-grid two">
+          <div class="panel glass-panel section-stack">
+            <div class="section-head">
+              <h2>Create Event</h2>
+              <div class="live-chip">New service</div>
+            </div>
+            <label>Event name</label>
+            <input id="eventName" type="text" placeholder="Sunday service 11:00">
+            <div class="split-2">
+              <div>
+                <label>Date</label>
+                <input id="eventDate" type="date">
+              </div>
+              <div>
+                <label>Time</label>
+                <input id="eventTime" type="time">
+              </div>
+            </div>
+            <div class="split-2">
+              <div>
+                <label>Source language</label>
+                <select id="sourceLang"></select>
+              </div>
+              <div>
+                <label>Start mode</label>
+                <select id="eventModePreset">
+                  <option value="live" selected>Live Translate</option>
+                  <option value="song">Song mode</option>
+                </select>
+              </div>
+            </div>
+            <label>Target languages</label>
+            <div id="targetLangList" class="checkbox-grid"></div>
+            <button id="createEventBtn" class="btn btn-primary">Create event</button>
+          </div>
+
+          <div class="panel glass-panel section-stack access-shell">
+            <div class="section-head">
+              <h2>Access and Sharing</h2>
+              <div class="live-chip">Fast launch</div>
+            </div>
+            <div class="meta-row access-code-row"><span>Admin code</span><strong id="adminCode">-</strong></div>
+
+            <div class="link-stack">
+              <label>Participant link</label>
+              <div class="link-row">
+                <input id="participantLink" type="text" readonly>
+                <button id="copyParticipantBtn" class="btn btn-dark">Copy</button>
+              </div>
+            </div>
+
+            <div class="link-stack">
+              <label>Main screen link</label>
+              <div class="link-row">
+                <input id="translateLink" type="text" readonly>
+                <button id="copyTranslateBtn" class="btn btn-dark">Copy</button>
+              </div>
+            </div>
+
+            <div class="button-row">
+              <button id="setActiveEventBtn" class="btn btn-primary">Set live event</button>
+            </div>
+
+            <img id="qrImage" class="qr" alt="QR code">
+            <div class="button-row compact-row">
+              <button id="copyQrBtn" class="btn btn-dark">Copy QR</button>
+              <button id="downloadQrBtn" class="btn btn-dark">Download QR</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel glass-panel section-stack">
+          <div class="section-head">
+            <h2>Event Library</h2>
+            <button id="refreshEventsBtn" class="btn btn-dark">Refresh</button>
+          </div>
+          <div id="eventList" class="event-list"></div>
+        </div>
+      </section>
+
+      <section id="tab-mainscreen" class="tab-panel">
+        <div class="cards-grid">
+          <div class="panel glass-panel section-stack">
+            <div class="section-head">
+              <h2>Main Screen</h2>
+              <div id="mainScreenModeMount" class="muted">Main screen: Live follow</div>
+            </div>
+            <div class="muted">Choose what the projector shows and adjust readability, theme, and visibility.</div>
+            <div id="mainScreenSettingsMount"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-song" class="tab-panel">
+        <div class="cards-grid two song-grid">
+          <div class="panel glass-panel section-stack">
+            <div class="section-head">
+              <h2>Song Mode Console</h2>
+              <div id="songModeBadge" class="status-pill">Live</div>
+            </div>
+            <div id="displayModeLabel" class="muted">Main screen: Live follow</div>
+            <div id="songCurrentIndex" class="muted">Saved: 0 · History: 0</div>
+            <div class="info-card soft-card main-screen-settings-card">
+              <div class="section-head admin-subsection-head">
+                <h2>Main Screen Settings</h2>
+                <div class="muted">Theme, readability, preview and blank screen</div>
+              </div>
+              <div class="button-row compact-row">
+                <button id="displayAutoBtn" class="btn btn-dark" type="button">Live follow</button>
+                <button id="displayManualBtn" class="btn btn-primary" type="button">Pinned text</button>
+                <button id="displaySongBtn" class="btn btn-dark" type="button">Song</button>
+                <button id="blankMainScreenBtn" class="btn btn-danger" type="button">Black screen</button>
+              </div>
+              <div class="split-2">
+                <div>
+                  <label>Theme</label>
+                  <select id="displayThemeSelect">
+                    <option value="dark" selected>White on black</option>
+                    <option value="light">Black on white</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Screen language</label>
+                  <select id="displayLanguageSelect"></select>
+                </div>
+              </div>
+              <div class="split-2">
+                <div>
+                  <label>Background preset</label>
+                  <select id="displayBackgroundPresetSelect">
+                    <option value="none" selected>Solid theme</option>
+                    <option value="warm">Warm glow</option>
+                    <option value="sanctuary">Sanctuary blur</option>
+                    <option value="soft-light">Soft light</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Text size</label>
+                  <select id="displayTextSizeSelect">
+                    <option value="compact">Compact</option>
+                    <option value="large" selected>Large</option>
+                    <option value="xlarge">Extra large</option>
+                  </select>
+                </div>
+              </div>
+              <div class="split-2">
+                <div>
+                  <label>Text layout</label>
+                  <select id="displayScreenStyleSelect">
+                    <option value="focus" selected>Focus</option>
+                    <option value="wide">Wide</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Clock position</label>
+                  <select id="displayClockPositionSelect">
+                    <option value="top-right" selected>Clock top right</option>
+                    <option value="top-left">Clock top left</option>
+                    <option value="bottom-right">Clock bottom right</option>
+                    <option value="bottom-left">Clock bottom left</option>
+                  </select>
+                </div>
+              </div>
+              <label>Custom background image URL</label>
+              <input id="displayBackgroundInput" type="text" placeholder="Optional image URL overrides preset">
+              <label class="inline-check"><input id="displayShowClockBox" type="checkbox"> Show clock</label>
+              <div class="button-row compact-row">
+                <button id="saveDisplaySettingsBtn" class="btn btn-dark" type="button">Save main screen settings</button>
+              </div>
+              <div class="info-card soft-card">
+                <div class="section-head admin-subsection-head">
+                  <h2>Preview Windows</h2>
+                  <div class="muted">Open previews on another monitor or split them side by side.</div>
+                </div>
+                <div class="button-row compact-row">
+                  <button id="openMainPreviewBtn" class="btn btn-dark" type="button">Open main screen preview</button>
+                  <button id="openParticipantPreviewBtn" class="btn btn-dark" type="button">Open participant preview</button>
+                  <button id="openBothPreviewsBtn" class="btn btn-primary" type="button">Open both previews</button>
+                </div>
+                <div class="muted">Use these windows like live previews for projector and participant phone view.</div>
+              </div>
+            </div>
+            <label>Title</label>
+            <input id="songTitle" type="text" placeholder="Amazing Grace">
+            <label>Song text or lyrics</label>
+            <textarea id="songText" class="song-textarea" placeholder="Paste song lyrics, chorus, prayer, announcement or other lyrics here."></textarea>
+            <div class="button-row">
+              <button id="saveSongBtn" class="btn btn-dark">Save to church library</button>
+              <button id="sendSongBtn" class="btn btn-primary">Send first verse</button>
+            </div>
+            <div class="button-row compact-row">
+              <button id="songPrevBtn" class="btn btn-dark" type="button">Previous verse</button>
+              <button id="songNextBtn" class="btn btn-dark" type="button">Next verse</button>
+            </div>
+            <div class="info-card soft-card">
+              <div class="label">Song mode preview</div>
+              <div id="songPreview" class="song-preview">Song mode text will appear here.</div>
+            </div>
+            <div id="songBlocksList" class="history-list">
+              <div class="muted">Use Save in library or Send first verse.</div>
+            </div>
+          </div>
+
+          <div class="panel glass-panel section-stack">
+            <div class="section-head">
+              <h2>Church Library</h2>
+              <div class="muted">Shared for all events</div>
+            </div>
+            <div class="button-row compact-row">
+              <input id="globalSongLibrarySearch" type="text" placeholder="Search church library">
+              <select id="globalSongLibrarySort">
+                <option value="az" selected>Title A-Z</option>
+                <option value="za">Title Z-A</option>
+                <option value="recent">Recent first</option>
+              </select>
+            </div>
+            <div id="globalSongLibraryList" class="event-list"></div>
+            <div class="section-head admin-subsection-head">
+              <h2>Recent Sends</h2>
+              <div class="muted">Latest items on screen</div>
+            </div>
+            <div id="songHistoryList" class="history"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-glossary" class="tab-panel">
+        <div class="panel glass-panel section-stack">
+          <div class="section-head">
+            <h2>Glossary and Speech Fixes</h2>
+            <div class="live-chip">Permanent memory</div>
+          </div>
+          <label>Type</label>
+          <select id="glossaryMode">
+            <option value="translation" selected>Translation glossary</option>
+            <option value="source">Speech correction</option>
+          </select>
+
+          <div id="translationGlossaryFields" class="section-stack compact-stack">
+            <div class="split-2">
+              <div>
+                <label>Language</label>
+                <select id="glossaryLang"></select>
+              </div>
+              <div>
+                <label class="inline-check"><input id="glossaryPermanent" type="checkbox" checked> Save permanently</label>
+              </div>
+            </div>
+            <input id="glossarySource" type="text" placeholder="Source word or phrase">
+            <input id="glossaryTarget" type="text" placeholder="Correct target form">
+            <button id="saveGlossaryBtn" class="btn btn-dark">Save translation</button>
+          </div>
+
+          <div id="sourceCorrectionFields" class="section-stack compact-stack" style="display:none">
+            <label class="inline-check"><input id="sourceCorrectionPermanent" type="checkbox" checked> Save permanently</label>
+            <input id="sourceWrong" type="text" placeholder="Wrong heard form">
+            <input id="sourceCorrect" type="text" placeholder="Correct source form">
+            <button id="saveSourceCorrectionBtn" class="btn btn-dark">Save speech correction</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-manual" class="tab-panel">
+        <div class="panel glass-panel section-stack">
+          <div class="section-head">
+            <h2>Quick Text Push</h2>
+            <div class="live-chip">Direct publish</div>
+          </div>
+          <textarea id="manualText" placeholder="Write text here"></textarea>
+          <div class="muted">Press Enter twice quickly to send.</div>
+          <div class="button-row compact-row">
+            <button id="sendManualLiveBtn" class="btn btn-dark" type="button">Send to live</button>
+            <button id="sendManualDisplayBtn" class="btn btn-primary" type="button">Send to pinned text</button>
+          </div>
+          <div class="info-card soft-card">
+            <div class="section-head admin-subsection-head">
+              <h2>Pinned Text History</h2>
+              <div class="muted">Resend a recent pinned text quickly</div>
+            </div>
+            <div id="manualHistoryList" class="history-list">
+              <div class="muted">No pinned texts yet.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
