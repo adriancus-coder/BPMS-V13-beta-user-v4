@@ -801,6 +801,22 @@ progress::-moz-progress-bar {
   justify-content: flex-start;
 }
 
+.preset-save-wrap {
+  display: flex;
+  align-items: end;
+}
+
+.preset-item-card {
+  gap: 12px;
+}
+
+.preset-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .participant-shell {
   max-width: 1180px;
   margin: 0 auto;
