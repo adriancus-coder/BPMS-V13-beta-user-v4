@@ -548,7 +548,7 @@ function requireEventAdmin(req, res, event) {
 
 async function createEvent({ name, speed, sourceLang, targetLangs, baseUrl, scheduledAt }) {
   const id = randomUUID();
-  const adminCode = `BPMS-ADMIN-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+  const adminCode = `SV-ADMIN-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
   const participantLink = `${baseUrl}/participant?event=${id}`;
   const translateLink = `${baseUrl}/translate?event=${id}`;
   const songLink = `${baseUrl}/song?event=${id}`;
@@ -1614,7 +1614,7 @@ app.post('/api/events/:id/transcribe', upload.single('audio'), async (req, res) 
 
   const mimeType = String(req.file.mimetype || 'audio/webm');
   const ext = mimeType.includes('wav') ? 'wav' : mimeType.includes('mp4') || mimeType.includes('m4a') ? 'm4a' : 'webm';
-  const tempPath = path.join(os.tmpdir(), `bpms-${randomUUID()}.${ext}`);
+  const tempPath = path.join(os.tmpdir(), `sanctuary-voice-${randomUUID()}.${ext}`);
 
   try {
     fs.writeFileSync(tempPath, req.file.buffer);
@@ -1728,5 +1728,5 @@ io.on('connection', (socket) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`BPMS V13 beta user running on ${PORT}`);
+  console.log(`Sanctuary Voice running on ${PORT}`);
 });
