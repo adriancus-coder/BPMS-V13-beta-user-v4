@@ -25,6 +25,7 @@
         <button class="nav-btn active" data-tab="dashboard" type="button">Live Control</button>
         <button class="nav-btn" data-tab="transcript" type="button">Transcript</button>
         <button class="nav-btn" data-tab="events" type="button">Events</button>
+        <button class="nav-btn" data-tab="mainscreen" type="button">Main Screen</button>
         <button class="nav-btn" data-tab="song" type="button">Song mode</button>
         <button class="nav-btn" data-tab="glossary" type="button">Glossary</button>
         <button class="nav-btn" data-tab="manual" type="button">Quick Text</button>
@@ -242,6 +243,19 @@
             <button id="refreshEventsBtn" class="btn btn-dark">Refresh</button>
           </div>
           <div id="eventList" class="event-list"></div>
+        </div>
+      </section>
+
+      <section id="tab-mainscreen" class="tab-panel">
+        <div class="cards-grid">
+          <div class="panel glass-panel section-stack">
+            <div class="section-head">
+              <h2>Main Screen</h2>
+              <div id="mainScreenModeMount" class="muted">Main screen: Live follow</div>
+            </div>
+            <div class="muted">Choose what the projector shows and adjust readability, theme, and visibility.</div>
+            <div id="mainScreenSettingsMount"></div>
+          </div>
         </div>
       </section>
 

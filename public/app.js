@@ -78,6 +78,19 @@ function switchTab(tabName) {
   document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.toggle('active', panel.id === `tab-${tabName}`));
 }
 
+function relocateMainScreenControls() {
+  const modeLabel = $('displayModeLabel');
+  const settingsCard = document.querySelector('.main-screen-settings-card');
+  const modeMount = $('mainScreenModeMount');
+  const settingsMount = $('mainScreenSettingsMount');
+  if (modeLabel && modeMount && modeLabel.parentElement !== modeMount) {
+    modeMount.replaceWith(modeLabel);
+  }
+  if (settingsCard && settingsMount && settingsCard.parentElement !== settingsMount) {
+    settingsMount.replaceWith(settingsCard);
+  }
+}
+
 function updateGlossaryMode() {
   const mode = $('glossaryMode')?.value || 'translation';
   $('translationGlossaryFields').style.display = mode === 'translation' ? 'flex' : 'none';
@@ -1420,6 +1433,7 @@ socket.on('song_history_updated', ({ songHistory }) => {
   renderSongState(currentEvent.songState || {});
 });
 
+relocateMainScreenControls();
 document.querySelectorAll('.nav-btn').forEach((btn) => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
 $('createEventBtn').addEventListener('click', createEvent);
 $('sendManualLiveBtn').addEventListener('click', () => sendManualText('auto'));
