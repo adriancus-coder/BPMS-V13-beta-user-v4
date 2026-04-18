@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sanctuary Voice Remote</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="participant-shell remote-shell">
+    <div class="participant-header panel glass-panel participant-premium-hero">
+      <div class="eyebrow">Sanctuary Voice</div>
+      <h1 id="remoteEventName">Remote control</h1>
+      <div id="remoteStatus" class="muted">Connecting...</div>
+      <div class="participant-badge-row">
+        <div id="remoteModeBadge" class="status-pill active">Live follow</div>
+        <div id="remoteLanguageBadge" class="status-pill">Language</div>
+      </div>
+    </div>
+
+    <div class="panel glass-panel section-stack">
+      <div class="section-head">
+        <h2>Main Screen Control</h2>
+        <div class="live-chip">Limited operator role</div>
+      </div>
+      <div class="button-row compact-row">
+        <button id="remoteLiveBtn" class="btn btn-dark" type="button">Live follow</button>
+        <button id="remotePinnedBtn" class="btn btn-dark" type="button">Pinned text</button>
+        <button id="remoteSongBtn" class="btn btn-dark" type="button">Song</button>
+        <button id="remoteBlackBtn" class="btn btn-danger" type="button">Black screen</button>
+        <button id="remoteUndoBtn" class="btn btn-dark" type="button">Undo</button>
+      </div>
+      <div id="remoteQuickLanguages" class="quick-language-row">
+        <div class="muted">Waiting for event languages...</div>
+      </div>
+      <div id="remoteShortcuts" class="service-shortcuts-grid">
+        <button class="btn btn-dark" data-remote-shortcut="welcome" type="button">Welcome</button>
+        <button class="btn btn-dark" data-remote-shortcut="worship" type="button">Worship</button>
+        <button class="btn btn-dark" data-remote-shortcut="sermon" type="button">Sermon</button>
+        <button class="btn btn-dark" data-remote-shortcut="prayer" type="button">Prayer</button>
+        <button class="btn btn-dark" data-remote-shortcut="closing" type="button">Closing</button>
+      </div>
+    </div>
+
+    <div class="cards-grid two">
+      <div class="panel glass-panel section-stack">
+        <div class="section-head">
+          <h2>Song Navigation</h2>
+          <div id="remoteSongLabel" class="muted">No active verse</div>
+        </div>
+        <div class="button-row compact-row">
+          <button id="remotePrevSongBtn" class="btn btn-dark" type="button">Previous verse</button>
+          <button id="remoteNextSongBtn" class="btn btn-primary" type="button">Next verse</button>
+        </div>
+      </div>
+
+      <div class="panel glass-panel section-stack">
+        <div class="section-head">
+          <h2>Scene Presets</h2>
+          <div class="muted">Apply saved setups instantly</div>
+        </div>
+        <div id="remotePresetsList" class="history-list">
+          <div class="muted">No presets available.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/remote.js"></script>
+</body>
+</html>

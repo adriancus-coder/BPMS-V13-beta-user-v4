@@ -857,6 +857,14 @@ progress::-moz-progress-bar {
   min-width: 116px;
 }
 
+.usage-metrics-grid {
+  margin-bottom: 8px;
+}
+
+.remote-shell {
+  max-width: 980px;
+}
+
 .participant-shell {
   max-width: 1180px;
   margin: 0 auto;

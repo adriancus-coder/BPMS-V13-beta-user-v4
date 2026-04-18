@@ -339,6 +339,21 @@ function refreshDisplayControls() {
   if (restoreBtn) {
     restoreBtn.disabled = !currentEvent?.displayStatePrevious;
   }
+  const state = currentEvent?.displayState || {};
+  const isBlackScreen = !!state.blackScreen;
+  const activeMode = isBlackScreen ? 'blank' : (state.mode || 'auto');
+  const modeButtons = [
+    { id: 'displayAutoBtn', active: activeMode === 'auto', activeClass: 'btn-primary' },
+    { id: 'displayManualBtn', active: activeMode === 'manual', activeClass: 'btn-primary' },
+    { id: 'displaySongBtn', active: activeMode === 'song', activeClass: 'btn-primary' },
+    { id: 'blankMainScreenBtn', active: activeMode === 'blank', activeClass: 'btn-danger' }
+  ];
+  modeButtons.forEach(({ id, active, activeClass }) => {
+    const btn = $(id);
+    if (!btn) return;
+    btn.classList.remove('btn-primary', 'btn-danger', 'btn-dark');
+    btn.classList.add(active ? activeClass : 'btn-dark');
+  });
   renderQuickLanguageButtons();
   renderDisplayAuditSummary();
   renderDisplayPresets(currentEvent?.displayPresets || currentDisplayPresets || []);
@@ -368,8 +383,28 @@ function renderParticipantStats(stats = {}) {
     : '<div class="muted">No connected participant.</div>';
 }
 
+function renderUsageStats(stats = {}) {
+  $('usageUniqueParticipants').textContent = String(stats.uniqueParticipantsEver || 0);
+  $('usageScreenChanges').textContent = String(stats.screenChangeCount || 0);
+  $('usageTranscriptCount').textContent = String(stats.transcriptCount || 0);
+  const items = [
+    `Current participants: ${stats.currentParticipants || 0}`,
+    `Manual pushes: ${stats.manualPushCount || 0}`,
+    `Song controls: ${stats.songControlCount || 0}`,
+    `Transcript refreshes: ${stats.transcriptRefreshCount || 0}`,
+    `Admin joins: ${stats.adminJoinCount || 0}`,
+    `Screen operator joins: ${stats.screenOperatorJoinCount || 0}`,
+    `Last transcript: ${formatDateTime(stats.lastTranscriptAt)}`,
+    `Last screen action: ${formatDateTime(stats.lastScreenActionAt)}`,
+    `Last participant join: ${formatDateTime(stats.lastParticipantJoinAt)}`,
+    `Last issue: ${stats.lastErrorMessage ? `${stats.lastErrorMessage} · ${formatDateTime(stats.lastErrorAt)}` : 'No recent issues'}`
+  ];
+  $('usageReliabilityList').innerHTML = items.map((item) => `<div class="history-item">${escapeHtml(item)}</div>`).join('');
+}
+
 function resetParticipantStats() {
   renderParticipantStats({ uniqueCount: 0, languages: [] });
+  renderUsageStats({});
 }
 
 function getEntryById(entryId) {
@@ -644,8 +679,12 @@ async function syncSpeedToEvent() {
 function populateEventLinks() {
   if (!currentEvent) return;
   $('adminCode').textContent = currentEvent.adminCode || '-';
+  if ($('screenOperatorCode')) $('screenOperatorCode').textContent = currentEvent.screenOperatorCode || '-';
+  if ($('accessScreenOperatorCode')) $('accessScreenOperatorCode').textContent = currentEvent.screenOperatorCode || '-';
   $('participantLink').value = currentEvent.participantLink || '';
   $('translateLink').value = currentEvent.translateLink || '';
+  if ($('remoteControlLink')) $('remoteControlLink').value = currentEvent.remoteControlLink || '';
+  if ($('accessRemoteControlLink')) $('accessRemoteControlLink').value = currentEvent.remoteControlLink || '';
   $('qrImage').src = currentEvent.qrCodeDataUrl || '';
 }
 
@@ -1592,6 +1631,7 @@ socket.on('joined_event', ({ event, role }) => {
   renderSongState(currentEvent.songState || {});
   refreshDisplayControls();
   renderSongHistory(event.songHistory || []);
+  renderUsageStats(event.usageStats || {});
   loadSongLibrary();
   loadGlobalSongLibrary();
   loadPinnedTextLibrary();
@@ -1628,6 +1668,7 @@ socket.on('audio_state', ({ audioMuted, audioVolume }) => {
 });
 socket.on('partial_transcript', ({ text }) => { $('partialTranscript').textContent = text || 'Waiting for full sentence...'; });
 socket.on('participant_stats', renderParticipantStats);
+socket.on('usage_stats', renderUsageStats);
 socket.on('server_error', ({ message }) => setStatus(message || 'Server error.'));
 socket.on('active_event_changed', async ({ eventId }) => {
   if (currentEvent) {
@@ -1792,8 +1833,14 @@ $('startRecognitionBtn').addEventListener('click', startTranslation);
 $('stopRecognitionBtn').addEventListener('click', stopTranslation);
 $('copyParticipantBtn').addEventListener('click', () => copyField('participantLink', 'copyParticipantBtn'));
 $('copyTranslateBtn').addEventListener('click', () => copyField('translateLink', 'copyTranslateBtn'));
+$('copyRemoteControlBtn').addEventListener('click', () => copyField('remoteControlLink', 'copyRemoteControlBtn'));
+$('copyAccessRemoteBtn').addEventListener('click', () => copyField('accessRemoteControlLink', 'copyAccessRemoteBtn'));
 $('copyQrBtn').addEventListener('click', copyQrImage);
 $('downloadQrBtn').addEventListener('click', downloadQr);
+$('openRemoteControlBtn').addEventListener('click', () => {
+  const url = $('remoteControlLink')?.value || '';
+  if (url) window.open(url, '_blank');
+});
 $('setActiveEventBtn').addEventListener('click', setActiveEvent);
 $('refreshEventsBtn').addEventListener('click', refreshEventList);
 $('jumpLiveBtn').addEventListener('click', () => {
@@ -1991,6 +2038,10 @@ $('eventList').addEventListener('click', async (e) => {
       if (currentEvent?.id === id) {
         currentEvent = null;
         $('adminCode').textContent = '-'; $('participantLink').value = ''; $('translateLink').value = '';
+        if ($('screenOperatorCode')) $('screenOperatorCode').textContent = '-';
+        if ($('accessScreenOperatorCode')) $('accessScreenOperatorCode').textContent = '-';
+        if ($('remoteControlLink')) $('remoteControlLink').value = '';
+        if ($('accessRemoteControlLink')) $('accessRemoteControlLink').value = '';
         $('qrImage').src = ''; $('transcriptList').innerHTML = ''; renderActiveEventBadge(null); resetParticipantStats();
         renderSongState({});
         refreshDisplayControls();
