@@ -7,7 +7,9 @@ const state = {
   accessCode: params.get('code') || '',
   currentEvent: null,
   availableLanguages: {},
-  access: null
+  access: null,
+  globalSongLibrary: [],
+  glossaryOpen: false
 };
 
 const remoteProfileLabels = {
@@ -19,6 +21,15 @@ const remoteProfileLabels = {
 
 function langLabel(code) {
   return state.availableLanguages[code] || String(code || '').toUpperCase();
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 function setStatus(text) {
@@ -52,6 +63,59 @@ function updateHeader() {
   if (profileBadge) {
     const profile = state.access?.operator?.profile || '';
     profileBadge.textContent = remoteProfileLabels[profile] || 'Remote operator';
+  }
+}
+
+function filterAndSortRemoteLibrary(items = []) {
+  const query = ($('remoteSongLibrarySearch')?.value || '').trim().toLowerCase();
+  const sortMode = $('remoteSongLibrarySort')?.value || 'az';
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => String(item.title || '').toLowerCase().includes(query))
+    .sort((a, b) => {
+      if (sortMode === 'recent') {
+        return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+      }
+      return String(a.title || '').localeCompare(String(b.title || ''));
+    });
+}
+
+function renderRemoteSongLibrary() {
+  const box = $('remoteSongLibraryList');
+  if (!box) return;
+  const items = filterAndSortRemoteLibrary(state.globalSongLibrary);
+  if (!items.length) {
+    box.innerHTML = '<div class="muted">No songs available in church library.</div>';
+    return;
+  }
+  box.innerHTML = items.map((item) => `
+    <details class="event-card library-card-details">
+      <summary class="library-card-summary">
+        <span class="name">${escapeHtml(item.title || 'Untitled song')}</span>
+      </summary>
+      <div class="library-card-body">
+        <div class="small"><b>Language:</b> ${escapeHtml(langLabel(item.sourceLang || state.currentEvent?.sourceLang || 'ro'))}</div>
+        <div class="small">${escapeHtml(String(item.text || '').slice(0, 220))}${String(item.text || '').length > 220 ? '...' : ''}</div>
+        <div class="actions">
+          <button class="btn btn-dark" type="button" data-remote-song-library-action="load" data-remote-song-library-id="${item.id}">Load in editor</button>
+          <button class="btn btn-primary" type="button" data-remote-song-library-action="send" data-remote-song-library-id="${item.id}">Send first verse</button>
+        </div>
+      </div>
+    </details>
+  `).join('');
+}
+
+function refreshPreviewFrames() {
+  const mainFrame = $('remoteMainPreviewFrame');
+  const participantFrame = $('remoteParticipantPreviewFrame');
+  const mainUrl = state.currentEvent?.translateLink || '';
+  const participantUrl = state.currentEvent?.participantLink || '';
+  if (mainFrame && mainUrl && mainFrame.dataset.src !== mainUrl) {
+    mainFrame.src = mainUrl;
+    mainFrame.dataset.src = mainUrl;
+  }
+  if (participantFrame && participantUrl && participantFrame.dataset.src !== participantUrl) {
+    participantFrame.src = participantUrl;
+    participantFrame.dataset.src = participantUrl;
   }
 }
 
@@ -97,6 +161,14 @@ function updateRemoteGlossaryMode() {
   if (langWrap) langWrap.style.display = mode === 'translation' ? 'block' : 'none';
 }
 
+function syncGlossaryToggle() {
+  const body = $('remoteGlossaryBody');
+  const btn = $('remoteGlossaryToggleBtn');
+  if (!body || !btn) return;
+  body.hidden = !state.glossaryOpen;
+  btn.textContent = state.glossaryOpen ? 'Hide glossary' : 'Open glossary';
+}
+
 function clearRemoteSongEditor() {
   if ($('remoteSongTitle')) $('remoteSongTitle').value = '';
   if ($('remoteSongText')) $('remoteSongText').value = '';
@@ -131,6 +203,19 @@ function renderPresets() {
       </div>
     </div>
   `).join('');
+}
+
+async function loadRemoteSongLibrary() {
+  if (!state.eventId) return;
+  try {
+    const res = await fetch(`/api/events/${state.eventId}/global-song-library`);
+    const data = await res.json();
+    state.globalSongLibrary = data.globalSongLibrary || [];
+    renderRemoteSongLibrary();
+  } catch (_) {
+    const box = $('remoteSongLibraryList');
+    if (box) box.innerHTML = '<div class="muted">Could not load church library.</div>';
+  }
 }
 
 function refreshRemoteUi() {
@@ -171,6 +256,9 @@ function refreshRemoteUi() {
   updateHeader();
   populateRemoteLanguageSelects();
   updateRemoteGlossaryMode();
+  syncGlossaryToggle();
+  refreshPreviewFrames();
+  renderRemoteSongLibrary();
   if (mainScreenAllowed) {
     renderQuickLanguages();
     renderPresets();
@@ -213,6 +301,7 @@ socket.on('joined_event', ({ role, event, access }) => {
   state.access = access || null;
   clearRemoteSongEditor();
   refreshRemoteUi();
+  loadRemoteSongLibrary();
   setStatus(access?.operator?.name ? `Remote control connected as ${access.operator.name}.` : 'Remote control connected.');
 });
 socket.on('display_mode_changed', (payload) => {
@@ -338,7 +427,9 @@ $('remoteSongSaveBtn').addEventListener('click', async () => {
     const res = await fetch(`/api/events/${state.eventId}/global-song-library`, eventCodeOptions('POST', { title, text, labels: [], sourceLang }));
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'Could not save song.');
+    state.globalSongLibrary = data.globalSongLibrary || state.globalSongLibrary;
     clearRemoteSongEditor();
+    renderRemoteSongLibrary();
     setStatus('Song saved to church library.');
   } catch (err) {
     setStatus(err.message);
@@ -363,6 +454,41 @@ $('remoteSongSendBtn').addEventListener('click', async () => {
 });
 
 $('remoteGlossaryMode').addEventListener('change', updateRemoteGlossaryMode);
+$('remoteGlossaryToggleBtn').addEventListener('click', () => {
+  state.glossaryOpen = !state.glossaryOpen;
+  syncGlossaryToggle();
+});
+
+$('remoteSongLibrarySearch').addEventListener('input', renderRemoteSongLibrary);
+$('remoteSongLibrarySort').addEventListener('change', renderRemoteSongLibrary);
+$('remoteSongLibraryList').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-remote-song-library-action]');
+  if (!btn) return;
+  const item = (state.globalSongLibrary || []).find((entry) => entry.id === btn.getAttribute('data-remote-song-library-id'));
+  if (!item) return;
+  if (btn.getAttribute('data-remote-song-library-action') === 'load') {
+    if ($('remoteSongTitle')) $('remoteSongTitle').value = item.title || '';
+    if ($('remoteSongText')) $('remoteSongText').value = item.text || '';
+    if ($('remoteSongSourceLang')) $('remoteSongSourceLang').value = item.sourceLang || state.currentEvent?.sourceLang || 'ro';
+    setStatus('Song loaded into editor.');
+    return;
+  }
+  try {
+    const res = await fetch(`/api/events/${state.eventId}/song/load`, eventCodeOptions('POST', {
+      title: item.title || '',
+      text: item.text || '',
+      labels: item.labels || [],
+      sourceLang: item.sourceLang || state.currentEvent?.sourceLang || 'ro'
+    }));
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Could not send song.');
+    state.currentEvent = data.event || state.currentEvent;
+    refreshRemoteUi();
+    setStatus('Song loaded from church library.');
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
 
 $('remoteSaveGlossaryBtn').addEventListener('click', async () => {
   const source = $('remoteGlossarySource')?.value.trim() || '';
@@ -407,6 +533,7 @@ window.addEventListener('load', async () => {
   } catch (_) {}
   populateRemoteLanguageSelects();
   updateRemoteGlossaryMode();
+  syncGlossaryToggle();
   refreshRemoteUi();
   await join();
 });

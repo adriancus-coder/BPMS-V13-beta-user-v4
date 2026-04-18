@@ -18,7 +18,8 @@ const voiceLocales = {
   tr: 'tr-TR',
   ar: 'ar-SA',
   fa: 'fa-IR',
-  hu: 'hu-HU'
+  hu: 'hu-HU',
+  el: 'el-GR'
 };
 
 function langLabel(code) {
@@ -58,6 +59,8 @@ const state = {
   compactMode: localStorage.getItem('sanctuary_voice_participant_compact') === '1',
   focusMode: localStorage.getItem('sanctuary_voice_participant_focus') === '1'
 };
+
+let publicEvents = [];
 
 function setWakeLockBadge(active) {
   const badge = $('participantWakeLockBadge');
@@ -218,6 +221,61 @@ function updateTopMeta() {
     : `Input: ${sourceName} · Translation: ${targetName}`;
 }
 
+function formatEventDate(value) {
+  if (!value) return 'Time not set';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Time not set';
+  return date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function renderParticipantEventList(events = []) {
+  const box = $('participantEventList');
+  if (!box) return;
+  publicEvents = Array.isArray(events) ? events : [];
+  if (!publicEvents.length) {
+    box.innerHTML = '<div class="muted">No services are listed yet.</div>';
+    return;
+  }
+  box.innerHTML = publicEvents.map((event) => {
+    const langs = (event.targetLangs || []).map(langLabel).join(', ') || 'No target languages';
+    const live = !!event.isActive;
+    return `
+      <div class="participant-event-card ${live ? 'is-live' : 'is-waiting'}">
+        <div>
+          <div class="entry-head">
+            <b>${escapeHtml(event.name || 'Service')}</b>
+            <span class="status-pill ${live ? 'active' : ''}">${live ? 'Live now' : 'Not live yet'}</span>
+          </div>
+          <div class="small">${escapeHtml(formatEventDate(event.scheduledAt || event.createdAt))}</div>
+          <div class="small">Languages: ${escapeHtml(langs)}</div>
+        </div>
+        <button class="btn ${live ? 'btn-primary' : 'btn-dark'}" type="button" data-participant-event="${event.id}" ${live ? '' : 'disabled'}>${live ? 'Join' : 'Waiting'}</button>
+      </div>
+    `;
+  }).join('');
+}
+
+async function loadParticipantEvents({ joinFixedIfLive = false } = {}) {
+  try {
+    const res = await fetch('/api/events/public');
+    const data = await res.json();
+    if (data.languageNames) availableLanguages = data.languageNames;
+    renderParticipantEventList(data.events || []);
+    if (joinFixedIfLive && state.fixedEventId) {
+      const fixedEvent = (data.events || []).find((event) => event.id === state.fixedEventId);
+      if (fixedEvent?.isActive) {
+        await joinParticipantEvent(fixedEvent.id);
+        return;
+      }
+      setStatus('This event is not live yet.');
+    } else if (!state.currentEvent) {
+      setStatus('Choose a live event.');
+    }
+  } catch (_) {
+    setStatus('Could not load events.');
+  }
+}
+
 function stopSpeech() {
   try {
     window.speechSynthesis?.cancel();
@@ -295,19 +353,8 @@ function handleLanguageChange() {
   renderLiveView({ announce: false });
 }
 
-async function resolveEventId() {
-  if (state.fixedEventId) return state.fixedEventId;
-  try {
-    const res = await fetch('/api/events/active');
-    const data = await res.json();
-    if (data.ok && data.event?.id) return data.event.id;
-  } catch (_) {}
-  return '';
-}
-
-async function joinParticipantEvent() {
-  const eventId = await resolveEventId();
-  if (!eventId) return setStatus('No active event.');
+async function joinParticipantEvent(eventId) {
+  if (!eventId) return setStatus('Choose a live event.');
   await enableWakeLock();
   socket.emit('join_event', {
     eventId,
@@ -319,7 +366,7 @@ async function joinParticipantEvent() {
 
 socket.on('connect', async () => {
   setStatus('Connecting...');
-  await joinParticipantEvent();
+  await loadParticipantEvents({ joinFixedIfLive: true });
 });
 
 socket.on('disconnect', () => setStatus('Reconnecting...'));
@@ -331,6 +378,8 @@ socket.on('joined_event', ({ event, role }) => {
   state.currentMode = event.mode || 'live';
   state.currentSongState = event.songState || null;
   state.serverAudioMuted = !!event.audioMuted;
+  const chooser = $('participantEventChooser');
+  if (chooser) chooser.hidden = true;
   syncLanguageOptions(event);
   renderLiveView({ announce: false });
   setParticipantUpdating(false);
@@ -371,7 +420,18 @@ socket.on('audio_state', ({ audioMuted }) => {
 });
 
 socket.on('active_event_changed', async () => {
-  if (!state.fixedEventId) await joinParticipantEvent();
+  await loadParticipantEvents({ joinFixedIfLive: !!state.fixedEventId });
+  if (state.currentEvent && !publicEvents.some((event) => event.id === state.currentEvent.id && event.isActive)) {
+    state.currentEvent = null;
+    state.currentMode = 'live';
+    state.currentSongState = null;
+    $('participantEventName').textContent = 'Choose a live event';
+    $('participantEventMeta').textContent = 'The previous event is no longer live.';
+    $('lastText').textContent = 'Waiting for live event...';
+    $('history').innerHTML = '';
+    const chooser = $('participantEventChooser');
+    if (chooser) chooser.hidden = false;
+  }
 });
 
 socket.on('mode_changed', ({ mode }) => {
@@ -400,6 +460,12 @@ socket.on('song_clear', () => {
 });
 
 $('languageSelect').addEventListener('change', handleLanguageChange);
+$('refreshParticipantEventsBtn').addEventListener('click', () => loadParticipantEvents({ joinFixedIfLive: !!state.fixedEventId }));
+$('participantEventList').addEventListener('click', async (event) => {
+  const btn = event.target.closest('button[data-participant-event]');
+  if (!btn || btn.disabled) return;
+  await joinParticipantEvent(btn.getAttribute('data-participant-event'));
+});
 $('playAudioBtn').addEventListener('click', () => {
   state.localAudioEnabled = true;
   setStatus(state.serverAudioMuted ? 'Audio stopped by admin.' : 'Audio active.');
@@ -439,6 +505,7 @@ window.addEventListener('load', async () => {
 
   await enableWakeLock();
   applyParticipantViewMode();
+  await loadParticipantEvents({ joinFixedIfLive: !!state.fixedEventId });
 });
 
 document.addEventListener('visibilitychange', async () => {

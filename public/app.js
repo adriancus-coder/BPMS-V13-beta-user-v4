@@ -555,6 +555,17 @@ function downloadQr() {
   a.click();
 }
 
+function emailLinkFromField(fieldId, label) {
+  const url = $(fieldId)?.value || '';
+  if (!url) return setStatus('No link available yet.');
+  const recipient = window.prompt(`Email address for ${label}:`);
+  if (!recipient) return;
+  const subject = encodeURIComponent(`Sanctuary Voice - ${label}`);
+  const body = encodeURIComponent(`Hello,\n\nHere is the ${label}:\n${url}\n\nSanctuary Voice`);
+  window.location.href = `mailto:${encodeURIComponent(recipient)}?subject=${subject}&body=${body}`;
+  setStatus(`Prepared ${label} email.`);
+}
+
 function buildScheduledAt() {
   const date = $('eventDate')?.value;
   const time = $('eventTime')?.value;
@@ -738,7 +749,7 @@ function populateEventLinks() {
   $('translateLink').value = currentEvent.translateLink || '';
   if ($('remoteControlLink')) $('remoteControlLink').value = currentEvent.remoteControlLink || '';
   if ($('accessRemoteControlLink')) $('accessRemoteControlLink').value = currentEvent.remoteControlLink || '';
-  $('qrImage').src = currentEvent.qrCodeDataUrl || '';
+  $('qrImage').src = `/api/participant-qr.png?ts=${Date.now()}`;
   renderRemoteOperators(currentEvent.remoteOperators || []);
 }
 
@@ -1938,6 +1949,9 @@ $('copyParticipantBtn').addEventListener('click', () => copyField('participantLi
 $('copyTranslateBtn').addEventListener('click', () => copyField('translateLink', 'copyTranslateBtn'));
 $('copyRemoteControlBtn').addEventListener('click', () => copyField('remoteControlLink', 'copyRemoteControlBtn'));
 $('copyAccessRemoteBtn').addEventListener('click', () => copyField('accessRemoteControlLink', 'copyAccessRemoteBtn'));
+$('emailParticipantBtn').addEventListener('click', () => emailLinkFromField('participantLink', 'participant link'));
+$('emailTranslateBtn').addEventListener('click', () => emailLinkFromField('translateLink', 'main screen link'));
+$('emailAccessRemoteBtn').addEventListener('click', () => emailLinkFromField('accessRemoteControlLink', 'remote control link'));
 $('copyQrBtn').addEventListener('click', copyQrImage);
 $('downloadQrBtn').addEventListener('click', downloadQr);
 $('openRemoteControlBtn').addEventListener('click', () => {
