@@ -6,7 +6,8 @@ const state = {
   eventId: params.get('event') || '',
   accessCode: params.get('code') || '',
   currentEvent: null,
-  availableLanguages: {}
+  availableLanguages: {},
+  access: null
 };
 
 function langLabel(code) {
@@ -15,6 +16,12 @@ function langLabel(code) {
 
 function setStatus(text) {
   $('remoteStatus').textContent = text;
+}
+
+function can(permission) {
+  const permissions = state.access?.permissions || [];
+  if (!permissions.length) return true;
+  return permissions.includes(permission);
 }
 
 function eventCodeOptions(method, payload = {}) {
@@ -69,20 +76,38 @@ function renderPresets() {
 function refreshRemoteUi() {
   const displayState = state.currentEvent?.displayState || {};
   const activeMode = displayState.blackScreen ? 'blank' : (displayState.mode || 'auto');
+  const mainScreenAllowed = can('main_screen');
+  const songAllowed = can('song');
   [
-    { id: 'remoteLiveBtn', active: activeMode === 'auto', activeClass: 'btn-primary' },
-    { id: 'remotePinnedBtn', active: activeMode === 'manual', activeClass: 'btn-primary' },
-    { id: 'remoteSongBtn', active: activeMode === 'song', activeClass: 'btn-primary' },
-    { id: 'remoteBlackBtn', active: activeMode === 'blank', activeClass: 'btn-danger' }
-  ].forEach(({ id, active, activeClass }) => {
+    { id: 'remoteLiveBtn', active: activeMode === 'auto', activeClass: 'btn-primary', visible: mainScreenAllowed },
+    { id: 'remotePinnedBtn', active: activeMode === 'manual', activeClass: 'btn-primary', visible: mainScreenAllowed },
+    { id: 'remoteSongBtn', active: activeMode === 'song', activeClass: 'btn-primary', visible: songAllowed },
+    { id: 'remoteBlackBtn', active: activeMode === 'blank', activeClass: 'btn-danger', visible: mainScreenAllowed },
+    { id: 'remoteUndoBtn', active: false, activeClass: 'btn-primary', visible: mainScreenAllowed }
+  ].forEach(({ id, active, activeClass, visible }) => {
     const btn = $(id);
     if (!btn) return;
+    btn.hidden = !visible;
+    btn.disabled = !visible;
     btn.classList.remove('btn-primary', 'btn-danger', 'btn-dark');
     btn.classList.add(active ? activeClass : 'btn-dark');
   });
+  const quickLanguages = $('remoteQuickLanguages');
+  const shortcuts = $('remoteShortcuts');
+  const presetsList = $('remotePresetsList');
+  const quickLanguagesPanel = quickLanguages?.closest('.panel');
+  const songPanel = $('remotePrevSongBtn')?.closest('.panel');
+  const presetsPanel = presetsList?.closest('.panel');
+  if (quickLanguages) quickLanguages.hidden = !mainScreenAllowed;
+  if (shortcuts) shortcuts.hidden = !mainScreenAllowed;
+  if (quickLanguagesPanel) quickLanguagesPanel.hidden = !mainScreenAllowed && !songAllowed;
+  if (songPanel) songPanel.hidden = !songAllowed;
+  if (presetsPanel) presetsPanel.hidden = !mainScreenAllowed;
   updateHeader();
-  renderQuickLanguages();
-  renderPresets();
+  if (mainScreenAllowed) {
+    renderQuickLanguages();
+    renderPresets();
+  }
 }
 
 async function post(path, payload = {}) {
@@ -115,11 +140,12 @@ async function join() {
 socket.on('connect', join);
 socket.on('disconnect', () => setStatus('Reconnecting...'));
 socket.on('join_error', ({ message }) => setStatus(message || 'Cannot join remote control.'));
-socket.on('joined_event', ({ role, event }) => {
+socket.on('joined_event', ({ role, event, access }) => {
   if (role !== 'screen') return;
   state.currentEvent = event;
+  state.access = access || null;
   refreshRemoteUi();
-  setStatus('Remote control connected.');
+  setStatus(access?.operator?.name ? `Remote control connected as ${access.operator.name}.` : 'Remote control connected.');
 });
 socket.on('display_mode_changed', (payload) => {
   if (!state.currentEvent) return;

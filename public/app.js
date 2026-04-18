@@ -202,6 +202,13 @@ function getTargetEventChoices(selectedId = '') {
     .join('');
 }
 
+const remoteProfileLabels = {
+  main_screen: 'Main Screen only',
+  song_only: 'Song only',
+  main_and_song: 'Main Screen + Song',
+  full: 'Full operator'
+};
+
 function getCurrentDisplayDraft() {
   return {
     mode: currentEvent?.displayState?.blackScreen ? 'auto' : (currentEvent?.displayState?.mode || 'auto'),
@@ -699,6 +706,34 @@ function populateEventLinks() {
   if ($('remoteControlLink')) $('remoteControlLink').value = currentEvent.remoteControlLink || '';
   if ($('accessRemoteControlLink')) $('accessRemoteControlLink').value = currentEvent.remoteControlLink || '';
   $('qrImage').src = currentEvent.qrCodeDataUrl || '';
+  renderRemoteOperators(currentEvent.remoteOperators || []);
+}
+
+function renderRemoteOperators(items = []) {
+  const box = $('remoteOperatorsList');
+  if (!box) return;
+  const operators = Array.isArray(items) ? items : [];
+  if (!operators.length) {
+    box.innerHTML = '<div class="muted">No extra operators yet.</div>';
+    return;
+  }
+  box.innerHTML = operators.map((operator) => `
+    <div class="history-item">
+      <div class="section-head compact-head">
+        <div>
+          <b>${escapeHtml(operator.name || 'Operator')}</b>
+          <div class="small">${escapeHtml(remoteProfileLabels[operator.profile] || 'Main Screen only')}</div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-dark" type="button" data-remote-operator-action="copy" data-remote-operator-id="${operator.id}">Copy</button>
+          <button class="btn btn-primary" type="button" data-remote-operator-action="open" data-remote-operator-id="${operator.id}">Open</button>
+          <button type="button" data-remote-operator-action="delete" data-remote-operator-id="${operator.id}">Delete</button>
+        </div>
+      </div>
+      <div class="meta-row access-code-row"><span>Code</span><strong>${escapeHtml(operator.code || '-')}</strong></div>
+      <div class="small">${escapeHtml(operator.remoteLink || '')}</div>
+    </div>
+  `).join('');
 }
 
 
@@ -1865,6 +1900,24 @@ $('openRemoteControlBtn').addEventListener('click', () => {
   const url = $('remoteControlLink')?.value || '';
   if (url) window.open(url, '_blank');
 });
+$('createRemoteOperatorBtn')?.addEventListener('click', async () => {
+  if (!currentEvent) return alert('Open or create an event first.');
+  const name = $('remoteOperatorName')?.value.trim() || 'Remote operator';
+  const profile = $('remoteOperatorProfile')?.value || 'main_and_song';
+  try {
+    const res = await fetch(`/api/events/${currentEvent.id}/remote-operators`, adminJsonOptions('POST', { name, profile }));
+    const data = await res.json();
+    if (!data.ok) return alert(data.error || 'Could not create operator.');
+    currentEvent.remoteOperators = data.remoteOperators || [];
+    renderRemoteOperators(currentEvent.remoteOperators);
+    $('remoteOperatorName').value = '';
+    $('remoteOperatorProfile').value = 'main_and_song';
+    setStatus(`Remote operator created for ${name}.`);
+  } catch (err) {
+    console.error(err);
+    alert('Could not create operator.');
+  }
+});
 $('setActiveEventBtn').addEventListener('click', setActiveEvent);
 $('refreshEventsBtn').addEventListener('click', refreshEventList);
 $('jumpLiveBtn').addEventListener('click', () => {
@@ -2026,6 +2079,36 @@ $('manualLibraryList')?.addEventListener('click', async (e) => {
     } catch (err) {
       console.error(err);
       alert('Could not delete pinned text.');
+    }
+  }
+});
+$('remoteOperatorsList')?.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-remote-operator-action]');
+  if (!btn) return;
+  const operatorId = btn.getAttribute('data-remote-operator-id');
+  const action = btn.getAttribute('data-remote-operator-action');
+  const operator = (currentEvent?.remoteOperators || []).find((item) => item.id === operatorId);
+  if (!operator) return;
+  if (action === 'copy') {
+    await copyTextQuick(operator.remoteLink || '', btn);
+    return;
+  }
+  if (action === 'open') {
+    if (operator.remoteLink) window.open(operator.remoteLink, '_blank');
+    return;
+  }
+  if (action === 'delete') {
+    if (!confirm(`Delete operator "${operator.name || 'Operator'}"?`)) return;
+    try {
+      const res = await fetch(`/api/events/${currentEvent.id}/remote-operators/${operatorId}`, adminJsonOptions('DELETE'));
+      const data = await res.json();
+      if (!data.ok) return alert(data.error || 'Could not delete operator.');
+      currentEvent.remoteOperators = data.remoteOperators || [];
+      renderRemoteOperators(currentEvent.remoteOperators);
+      setStatus('Remote operator deleted.');
+    } catch (err) {
+      console.error(err);
+      alert('Could not delete operator.');
     }
   }
 });

@@ -299,7 +299,7 @@
             </div>
             <div class="info-card soft-card">
               <div class="label">Main Screen Operator</div>
-              <div class="muted">Use this limited link for projector control without giving full admin access.</div>
+              <div class="muted">Legacy fallback link with full projector and song controls.</div>
               <div class="meta-row access-code-row"><span>Operator code</span><strong id="screenOperatorCode">-</strong></div>
               <div class="link-stack">
                 <label>Remote control link</label>
@@ -310,6 +310,30 @@
               </div>
               <div class="button-row compact-row">
                 <button id="openRemoteControlBtn" class="btn btn-primary" type="button">Open remote control</button>
+              </div>
+            </div>
+            <div class="info-card soft-card">
+              <div class="label">Create remote operator</div>
+              <div class="split-2 compact-library-row">
+                <div>
+                  <label>Name</label>
+                  <input id="remoteOperatorName" type="text" placeholder="Projection operator">
+                </div>
+                <div>
+                  <label>Access profile</label>
+                  <select id="remoteOperatorProfile">
+                    <option value="main_screen">Main Screen only</option>
+                    <option value="song_only">Song only</option>
+                    <option value="main_and_song" selected>Main Screen + Song</option>
+                    <option value="full">Full operator</option>
+                  </select>
+                </div>
+              </div>
+              <div class="button-row compact-row">
+                <button id="createRemoteOperatorBtn" class="btn btn-dark" type="button">Create operator</button>
+              </div>
+              <div id="remoteOperatorsList" class="history-list">
+                <div class="muted">No extra operators yet.</div>
               </div>
             </div>
           </div>
