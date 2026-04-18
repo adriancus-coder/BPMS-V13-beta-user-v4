@@ -330,11 +330,11 @@ progress::-moz-progress-bar {
 }
 
 .topbar {
-  padding: 18px 22px;
+  padding: 12px 16px;
   display: flex;
   justify-content: space-between;
   align-items: stretch;
-  gap: 18px;
+  gap: 12px;
   background:
     radial-gradient(circle at top center, rgba(255, 243, 219, 0.16), transparent 22%),
     radial-gradient(circle at top right, rgba(200, 138, 43, 0.16), transparent 28%),
@@ -344,19 +344,24 @@ progress::-moz-progress-bar {
 
 .hero-copy-block {
   display: grid;
-  gap: 5px;
+  gap: 3px;
 }
 
 .topbar h1 {
   margin: 0;
-  font-size: clamp(1.6rem, 2.2vw, 2.35rem);
+  font-size: clamp(1.32rem, 1.85vw, 1.85rem);
+}
+
+.topbar .muted {
+  font-size: 0.9rem;
+  line-height: 1.35;
 }
 
 .hero-status-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(170px, 1fr));
-  gap: 10px;
-  width: min(690px, 100%);
+  gap: 8px;
+  width: min(620px, 100%);
 }
 
 .hero-status-card,
@@ -391,9 +396,13 @@ progress::-moz-progress-bar {
 }
 
 .hero-status-card {
-  padding: 12px;
+  padding: 9px 10px;
   display: grid;
-  gap: 7px;
+  gap: 5px;
+}
+
+.hero-status-card .btn {
+  padding: 9px 11px;
 }
 
 .quick-links-card {
@@ -998,7 +1007,7 @@ progress::-moz-progress-bar {
 }
 
 .participant-premium-shell {
-  gap: 18px;
+  gap: 12px;
 }
 
 .participant-header,
