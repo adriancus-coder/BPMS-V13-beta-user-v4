@@ -271,6 +271,10 @@ function ensureEventUiState(event) {
   if (typeof event.songState.sourceLang !== 'string' || !event.songState.sourceLang.trim()) {
     event.songState.sourceLang = event.sourceLang || 'ro';
   }
+  if (!Array.isArray(event.remoteOperators)) {
+    event.remoteOperators = [];
+  }
+  event.remoteOperators = normalizeRemoteOperators(event.remoteOperators);
   if (!Array.isArray(event.songState.blockLabels)) {
     event.songState.blockLabels = [];
   }
@@ -302,6 +306,59 @@ function ensureEventUiState(event) {
 
 function defaultDb() {
   return { events: {}, globalMemory: {}, globalSongLibrary: defaultGlobalSongLibrary(), pinnedTextLibrary: defaultPinnedTextLibrary(), activeEventId: null };
+}
+
+const REMOTE_OPERATOR_PROFILES = {
+  main_screen: {
+    label: 'Main Screen only',
+    permissions: ['main_screen']
+  },
+  song_only: {
+    label: 'Song only',
+    permissions: ['song']
+  },
+  main_and_song: {
+    label: 'Main Screen + Song',
+    permissions: ['main_screen', 'song']
+  },
+  full: {
+    label: 'Full operator',
+    permissions: ['main_screen', 'song']
+  }
+};
+
+function normalizeRemoteOperatorProfile(profile) {
+  const key = String(profile || '').trim().toLowerCase();
+  return REMOTE_OPERATOR_PROFILES[key] ? key : 'main_screen';
+}
+
+function getRemoteOperatorPermissions(profile) {
+  return [...(REMOTE_OPERATOR_PROFILES[normalizeRemoteOperatorProfile(profile)]?.permissions || ['main_screen'])];
+}
+
+function buildRemoteOperatorLink(baseUrl, eventId, operator) {
+  if (!baseUrl || !eventId || !operator?.code) return '';
+  const params = new URLSearchParams({
+    event: eventId,
+    code: operator.code
+  });
+  if (operator.id) params.set('operator', operator.id);
+  return `${baseUrl}/remote?${params.toString()}`;
+}
+
+function normalizeRemoteOperators(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => {
+      const profile = normalizeRemoteOperatorProfile(item?.profile);
+      return {
+        id: String(item?.id || randomUUID()),
+        name: String(item?.name || '').trim() || 'Operator',
+        profile,
+        code: String(item?.code || `SV-REMOTE-${Math.random().toString(36).slice(2, 7).toUpperCase()}`).trim(),
+        permissions: getRemoteOperatorPermissions(profile),
+        remoteLink: String(item?.remoteLink || '').trim()
+      };
+    });
 }
 
 function loadDb() {
@@ -546,6 +603,7 @@ function normalizeEvent(event) {
     speed: event.speed || 'balanced',
     adminCode: event.adminCode,
     screenOperatorCode: event.screenOperatorCode || '',
+    remoteOperators: normalizeRemoteOperators(event.remoteOperators || []),
     participantLink: event.participantLink,
     translateLink: event.translateLink || '',
     remoteControlLink: event.remoteControlLink || '',
@@ -723,22 +781,46 @@ function getSuppliedEventCode(req) {
   ).trim();
 }
 
-function resolveEventRoleFromCode(event, code) {
+function resolveEventAccessFromCode(event, code) {
   const suppliedCode = String(code || '').trim();
-  if (!suppliedCode) return '';
-  if (String(event.adminCode || '') === suppliedCode) return 'admin';
-  if (String(event.screenOperatorCode || '') === suppliedCode) return 'screen';
-  return '';
+  if (!suppliedCode) return { role: '', permissions: [], operator: null };
+  if (String(event.adminCode || '') === suppliedCode) {
+    return { role: 'admin', permissions: ['main_screen', 'song'], operator: null };
+  }
+  if (String(event.screenOperatorCode || '') === suppliedCode) {
+    return {
+      role: 'screen',
+      permissions: ['main_screen', 'song'],
+      operator: { id: 'default-screen', name: 'Default operator', profile: 'full', code: suppliedCode }
+    };
+  }
+  const operator = (event.remoteOperators || []).find((item) => String(item.code || '') === suppliedCode);
+  if (operator) {
+    return {
+      role: 'screen',
+      permissions: getRemoteOperatorPermissions(operator.profile),
+      operator
+    };
+  }
+  return { role: '', permissions: [], operator: null };
 }
 
 function requireEventRole(req, res, event, allowedRoles = ['admin']) {
-  const role = resolveEventRoleFromCode(event, getSuppliedEventCode(req));
-  if (!allowedRoles.includes(role)) {
+  const access = resolveEventAccessFromCode(event, getSuppliedEventCode(req));
+  if (!allowedRoles.includes(access.role)) {
     res.status(403).json({ ok: false, error: 'Cod de acces invalid.' });
     return false;
   }
-  req.eventRole = role;
-  return role;
+  req.eventRole = access.role;
+  req.eventAccess = access;
+  return access.role;
+}
+
+function requireEventPermission(req, res, permission) {
+  if (req.eventRole === 'admin') return true;
+  if ((req.eventAccess?.permissions || []).includes(permission)) return true;
+  res.status(403).json({ ok: false, error: 'Operatorul nu are permisiunea pentru aceasta actiune.' });
+  return false;
 }
 
 function buildBaseUrl(req) {
@@ -751,11 +833,16 @@ function ensureEventAccessLinks(event, baseUrl) {
   if (!event.screenOperatorCode) {
     event.screenOperatorCode = `SV-SCREEN-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
   }
+  event.remoteOperators = normalizeRemoteOperators(event.remoteOperators || []);
   if (baseUrl) {
     event.participantLink = `${baseUrl}/participant?event=${event.id}`;
     event.translateLink = `${baseUrl}/translate?event=${event.id}`;
     event.songLink = `${baseUrl}/song?event=${event.id}`;
     event.remoteControlLink = `${baseUrl}/remote?event=${event.id}&code=${encodeURIComponent(event.screenOperatorCode)}`;
+    event.remoteOperators = event.remoteOperators.map((operator) => ({
+      ...operator,
+      remoteLink: buildRemoteOperatorLink(baseUrl, event.id, operator)
+    }));
   }
 }
 
@@ -778,6 +865,7 @@ async function createEvent({ name, speed, sourceLang, targetLangs, baseUrl, sche
     scheduledAt: scheduledAt || null,
     adminCode,
     screenOperatorCode,
+    remoteOperators: [],
     participantLink,
     translateLink,
     songLink,
@@ -1346,6 +1434,37 @@ app.get('/api/events/:id', (req, res) => {
   res.json({ ok: true, event: normalizeEvent(event), languageNames: LANGUAGE_NAMES_RO });
 });
 
+app.post('/api/events/:id/remote-operators', (req, res) => {
+  const event = db.events[req.params.id];
+  if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
+  if (!requireEventAdmin(req, res, event)) return;
+  ensureEventAccessLinks(event, buildBaseUrl(req));
+  const name = String(req.body.name || '').trim();
+  const profile = normalizeRemoteOperatorProfile(req.body.profile);
+  if (!name) return res.status(400).json({ ok: false, error: 'Numele operatorului lipseste.' });
+  const operator = {
+    id: randomUUID(),
+    name,
+    profile,
+    code: `SV-REMOTE-${Math.random().toString(36).slice(2, 7).toUpperCase()}`,
+    permissions: getRemoteOperatorPermissions(profile),
+    remoteLink: ''
+  };
+  event.remoteOperators.unshift(operator);
+  ensureEventAccessLinks(event, buildBaseUrl(req));
+  saveDb();
+  res.json({ ok: true, remoteOperators: event.remoteOperators });
+});
+
+app.delete('/api/events/:id/remote-operators/:operatorId', (req, res) => {
+  const event = db.events[req.params.id];
+  if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
+  if (!requireEventAdmin(req, res, event)) return;
+  event.remoteOperators = normalizeRemoteOperators(event.remoteOperators || []).filter((item) => item.id !== req.params.operatorId);
+  saveDb();
+  res.json({ ok: true, remoteOperators: event.remoteOperators });
+});
+
 app.post('/api/events/:id/settings', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
@@ -1475,6 +1594,7 @@ app.post('/api/events/:id/song/show/:index', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
   if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
+  if (!requireEventPermission(req, res, 'song')) return;
   const index = Number(req.params.index);
   if (!setSongIndex(event, index)) return res.status(400).json({ ok: false, error: 'Index invalid.' });
   recordScreenAction(event, 'song');
@@ -1502,6 +1622,7 @@ app.post('/api/events/:id/song/next', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
   if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
+  if (!requireEventPermission(req, res, 'song')) return;
   const nextIndex = Number(event.songState?.currentIndex ?? -1) + 1;
   if (!setSongIndex(event, nextIndex)) return res.status(400).json({ ok: false, error: 'Nu mai există bloc următor.' });
   recordScreenAction(event, 'song');
@@ -1515,6 +1636,7 @@ app.post('/api/events/:id/song/prev', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
   if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
+  if (!requireEventPermission(req, res, 'song')) return;
   const prevIndex = Number(event.songState?.currentIndex ?? 0) - 1;
   if (!setSongIndex(event, prevIndex)) return res.status(400).json({ ok: false, error: 'Nu mai există bloc anterior.' });
   saveDb();
@@ -1526,6 +1648,7 @@ app.post('/api/events/:id/song/clear', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
   if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
+  if (!requireEventPermission(req, res, 'song')) return;
   rememberDisplayState(event);
   event.songState = defaultSongState();
   event.mode = 'live';
@@ -1553,6 +1676,9 @@ app.post('/api/events/:id/display/mode', (req, res) => {
   if (!['auto', 'manual', 'song'].includes(mode)) {
     return res.status(400).json({ ok: false, error: 'Mod invalid.' });
   }
+  if (mode === 'song') {
+    if (!requireEventPermission(req, res, 'song')) return;
+  } else if (!requireEventPermission(req, res, 'main_screen')) return;
 
   if (mode === 'song' && !event.songState?.activeBlock && !event.songState?.translations) {
     return res.status(400).json({ ok: false, error: 'Nu exista continut activ pentru Song.' });
@@ -1576,6 +1702,7 @@ app.post('/api/events/:id/display/theme', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
   if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
+  if (!requireEventPermission(req, res, 'main_screen')) return;
 
   ensureEventUiState(event);
   const theme = String(req.body.theme || 'dark').trim();
@@ -1604,6 +1731,7 @@ app.post('/api/events/:id/display/language', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
   if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
+  if (!requireEventPermission(req, res, 'main_screen')) return;
   ensureEventUiState(event);
   const language = String(req.body.language || '').trim();
   if (!event.targetLangs.includes(language)) {
@@ -1624,6 +1752,7 @@ app.post('/api/events/:id/display/settings', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
   if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
+  if (!requireEventPermission(req, res, 'main_screen')) return;
   ensureEventUiState(event);
   const backgroundPreset = typeof req.body.backgroundPreset === 'string' ? req.body.backgroundPreset.trim() : event.displayState.backgroundPreset;
   const customBackground = typeof req.body.customBackground === 'string' ? req.body.customBackground.trim() : event.displayState.customBackground;
@@ -1663,6 +1792,7 @@ app.post('/api/events/:id/display/restore-last', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
   if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
+  if (!requireEventPermission(req, res, 'main_screen')) return;
   ensureEventUiState(event);
   if (!event.displayStatePrevious) {
     return res.status(400).json({ ok: false, error: 'Nu exista o stare anterioara pentru restore.' });
@@ -1682,6 +1812,7 @@ app.post('/api/events/:id/display/shortcut', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
   if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
+  if (!requireEventPermission(req, res, 'main_screen')) return;
   ensureEventUiState(event);
 
   const shortcutKey = String(req.body.shortcut || '').trim().toLowerCase();
@@ -1725,6 +1856,7 @@ app.get('/api/events/:id/display-presets', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
   if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
+  if (!requireEventPermission(req, res, 'main_screen')) return;
   ensureEventUiState(event);
   res.json({ ok: true, presets: event.displayPresets });
 });
@@ -1762,6 +1894,7 @@ app.post('/api/events/:id/display-presets/:presetId/apply', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
   if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
+  if (!requireEventPermission(req, res, 'main_screen')) return;
   ensureEventUiState(event);
 
   const preset = event.displayPresets.find((item) => item.id === req.params.presetId);
@@ -1807,6 +1940,7 @@ app.post('/api/events/:id/display/blank', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
   if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
+  if (!requireEventPermission(req, res, 'main_screen')) return;
   ensureEventUiState(event);
   rememberDisplayState(event);
   event.displayState.blackScreen = true;
@@ -1823,6 +1957,7 @@ app.post('/api/events/:id/display/manual', async (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
   if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
+  if (!requireEventPermission(req, res, 'main_screen')) return;
 
   ensureEventUiState(event);
 
@@ -2057,9 +2192,9 @@ io.on('connection', (socket) => {
   socket.on('join_event', ({ eventId, role, code, language, participantId }) => {
     const event = db.events[eventId];
     if (!event) return socket.emit('join_error', { message: 'Evenimentul nu există.' });
-    const accessRole = resolveEventRoleFromCode(event, code);
-    if (role === 'admin' && accessRole !== 'admin') return socket.emit('join_error', { message: 'Cod Admin invalid.' });
-    if (role === 'screen' && !['admin', 'screen'].includes(accessRole)) return socket.emit('join_error', { message: 'Cod operator invalid.' });
+    const access = resolveEventAccessFromCode(event, code);
+    if (role === 'admin' && access.role !== 'admin') return socket.emit('join_error', { message: 'Cod Admin invalid.' });
+    if (role === 'screen' && !['admin', 'screen'].includes(access.role)) return socket.emit('join_error', { message: 'Cod operator invalid.' });
 
     cleanupSocketPresence(socket);
     socket.data.eventId = eventId;
@@ -2084,7 +2219,15 @@ io.on('connection', (socket) => {
       emitParticipantStats(eventId);
     }
 
-    socket.emit('joined_event', { ok: true, role: socket.data.role, event: normalizeEvent(event), languageNames: LANGUAGE_NAMES_RO });
+    socket.emit('joined_event', {
+      ok: true,
+      role: socket.data.role,
+      event: normalizeEvent(event),
+      access: socket.data.role === 'screen'
+        ? { permissions: access.permissions || [], operator: access.operator || null }
+        : null,
+      languageNames: LANGUAGE_NAMES_RO
+    });
   });
 
   socket.on('participant_language', ({ eventId, language }) => {
