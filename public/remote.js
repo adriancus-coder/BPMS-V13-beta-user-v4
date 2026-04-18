@@ -55,6 +55,20 @@ function updateHeader() {
   }
 }
 
+function getDisplayLanguageChoicesRemote() {
+  const langs = Array.isArray(state.currentEvent?.targetLangs) ? [...state.currentEvent.targetLangs] : [];
+  const mode = state.currentEvent?.displayState?.mode || 'auto';
+  if (mode === 'song') {
+    const sourceLang = String(state.currentEvent?.songState?.sourceLang || state.currentEvent?.sourceLang || '').trim();
+    if (sourceLang && !langs.includes(sourceLang)) langs.push(sourceLang);
+  }
+  if (mode === 'manual') {
+    const sourceLang = String(state.currentEvent?.displayState?.manualSourceLang || state.currentEvent?.sourceLang || '').trim();
+    if (sourceLang && !langs.includes(sourceLang)) langs.push(sourceLang);
+  }
+  return langs;
+}
+
 function populateRemoteLanguageSelects() {
   const available = Object.entries(state.availableLanguages || {});
   const songLangSelect = $('remoteSongSourceLang');
@@ -91,7 +105,7 @@ function clearRemoteSongEditor() {
 
 function renderQuickLanguages() {
   const box = $('remoteQuickLanguages');
-  const langs = state.currentEvent?.targetLangs || [];
+  const langs = getDisplayLanguageChoicesRemote();
   if (!langs.length) {
     box.innerHTML = '<div class="muted">Waiting for event languages...</div>';
     return;

@@ -17,8 +17,10 @@ const state = {
   screenStyle: 'focus',
   blackScreen: false,
   manualTranslations: {},
+  manualSourceLang: 'ro',
   latestLiveEntry: null,
-  songState: null
+  songState: null,
+  renderTimer: null
 };
 
 function langLabel(code) {
@@ -45,7 +47,11 @@ function detectPreferredSupportedLanguage(available = []) {
 function syncLanguageOptions(event) {
   const select = $('translateLanguage');
   if (!select) return;
-  const available = Array.from(new Set(event?.targetLangs || []));
+  const available = Array.from(new Set([
+    ...(event?.targetLangs || []),
+    (event?.displayState?.mode === 'song' ? (event?.songState?.sourceLang || '') : ''),
+    (event?.displayState?.mode === 'manual' ? (event?.displayState?.manualSourceLang || '') : '')
+  ].filter(Boolean)));
   select.innerHTML = available
     .map((code) => `<option value="${code}">${langLabel(code)}</option>`)
     .join('');
@@ -134,7 +140,10 @@ function getTextToDisplay() {
       || 'Waiting for song translation...';
   }
   if (state.currentDisplayMode === 'manual') {
-    return state.manualTranslations?.[state.currentLanguage] || '';
+    if (state.currentLanguage === (state.manualSourceLang || state.currentEvent?.sourceLang || 'ro')) {
+      return state.currentEvent?.displayState?.manualSource || '';
+    }
+    return state.manualTranslations?.[state.currentLanguage] || state.currentEvent?.displayState?.manualSource || '';
   }
   if (state.latestLiveEntry) {
     return state.latestLiveEntry.translations?.[state.currentLanguage]
@@ -220,6 +229,14 @@ function renderDisplay() {
   requestAnimationFrame(autoFitText);
 }
 
+function scheduleDisplayRender(delay = 70) {
+  if (state.renderTimer) clearTimeout(state.renderTimer);
+  state.renderTimer = window.setTimeout(() => {
+    state.renderTimer = null;
+    renderDisplay();
+  }, delay);
+}
+
 async function enterFullscreen() {
   try {
     if (document.fullscreenElement) {
@@ -279,6 +296,7 @@ socket.on('joined_event', ({ event, languageNames }) => {
   state.clockPosition = event.displayState?.clockPosition || 'top-right';
   state.textSize = event.displayState?.textSize || 'large';
   state.screenStyle = event.displayState?.screenStyle || 'focus';
+  state.manualSourceLang = event.displayState?.manualSourceLang || event.sourceLang || 'ro';
   state.manualTranslations = event.displayState?.manualTranslations || {};
   state.songState = event.songState || null;
   state.latestLiveEntry = (event.transcripts || [])
@@ -299,25 +317,27 @@ socket.on('mode_changed', ({ mode }) => {
 socket.on('song_state', (songState) => {
   state.songState = songState;
   if (state.currentEvent) state.currentEvent.mode = 'song';
-  renderDisplay();
+  syncLanguageOptions({ ...state.currentEvent, displayState: { ...(state.currentEvent?.displayState || {}), mode: 'song' }, songState });
+  scheduleDisplayRender(30);
 });
 
 socket.on('song_clear', () => {
   state.songState = null;
   if (state.currentEvent) state.currentEvent.mode = 'live';
+  syncLanguageOptions({ ...state.currentEvent, displayState: { ...(state.currentEvent?.displayState || {}), mode: state.currentDisplayMode } });
   renderDisplay();
 });
 
 socket.on('transcript_entry', (entry) => {
   if (state.currentDisplayMode !== 'auto') return;
   state.latestLiveEntry = entry;
-  renderDisplay();
+  scheduleDisplayRender(60);
 });
 
 socket.on('display_live_entry', (entry) => {
   if (state.currentDisplayMode !== 'auto') return;
   state.latestLiveEntry = entry;
-  renderDisplay();
+  scheduleDisplayRender(45);
 });
 
 socket.on('transcript_source_updated', (payload) => {
@@ -329,10 +349,26 @@ socket.on('transcript_source_updated', (payload) => {
     original: payload.original,
     translations: payload.translations || {}
   };
-  renderDisplay();
+  scheduleDisplayRender(45);
 });
 
-socket.on('display_mode_changed', ({ mode, blackScreen, theme, language, backgroundPreset, customBackground, showClock, clockPosition, textSize, screenStyle, manualTranslations }) => {
+socket.on('display_mode_changed', ({ mode, blackScreen, theme, language, backgroundPreset, customBackground, showClock, clockPosition, textSize, screenStyle, manualTranslations, manualSourceLang }) => {
+  if (state.currentEvent) {
+    state.currentEvent.displayState = {
+      ...(state.currentEvent.displayState || {}),
+      mode: mode || 'auto',
+      blackScreen: !!blackScreen,
+      theme: theme || state.currentTheme || 'dark',
+      language: language || state.currentLanguage,
+      backgroundPreset: backgroundPreset || state.backgroundPreset || 'none',
+      customBackground: typeof customBackground === 'string' ? customBackground : state.customBackground,
+      showClock: typeof showClock === 'boolean' ? showClock : state.showClock,
+      clockPosition: clockPosition || state.clockPosition,
+      textSize: textSize || state.textSize || 'large',
+      screenStyle: screenStyle || state.screenStyle || 'focus',
+      manualSourceLang: manualSourceLang || state.manualSourceLang || state.currentEvent?.sourceLang || 'ro'
+    };
+  }
   state.currentDisplayMode = mode || 'auto';
   state.blackScreen = !!blackScreen;
   state.currentTheme = theme || state.currentTheme || 'dark';
@@ -343,7 +379,9 @@ socket.on('display_mode_changed', ({ mode, blackScreen, theme, language, backgro
   state.clockPosition = clockPosition || state.clockPosition;
   state.textSize = textSize || state.textSize || 'large';
   state.screenStyle = screenStyle || state.screenStyle || 'focus';
+  state.manualSourceLang = manualSourceLang || state.manualSourceLang || state.currentEvent?.sourceLang || 'ro';
   state.manualTranslations = manualTranslations || state.manualTranslations || {};
+  syncLanguageOptions({ ...state.currentEvent, displayState: { ...(state.currentEvent?.displayState || {}), mode: state.currentDisplayMode, manualSourceLang: state.manualSourceLang }, songState: state.songState });
   if ($('translateLanguage')) $('translateLanguage').value = state.currentLanguage;
   renderDisplay();
 });
@@ -353,7 +391,7 @@ socket.on('display_theme_changed', ({ theme }) => {
   renderDisplay();
 });
 
-socket.on('display_manual_update', ({ mode, blackScreen, theme, language, backgroundPreset, customBackground, showClock, clockPosition, textSize, screenStyle, manualTranslations }) => {
+socket.on('display_manual_update', ({ mode, blackScreen, theme, language, backgroundPreset, customBackground, showClock, clockPosition, textSize, screenStyle, manualTranslations, manualSourceLang, manualSource }) => {
   state.currentDisplayMode = mode || 'manual';
   state.blackScreen = !!blackScreen;
   state.currentTheme = theme || state.currentTheme || 'dark';
@@ -364,7 +402,16 @@ socket.on('display_manual_update', ({ mode, blackScreen, theme, language, backgr
   state.clockPosition = clockPosition || state.clockPosition;
   state.textSize = textSize || state.textSize || 'large';
   state.screenStyle = screenStyle || state.screenStyle || 'focus';
+  state.manualSourceLang = manualSourceLang || state.manualSourceLang || state.currentEvent?.sourceLang || 'ro';
   state.manualTranslations = manualTranslations || {};
+  if (state.currentEvent) {
+    state.currentEvent.displayState = state.currentEvent.displayState || {};
+    state.currentEvent.displayState.mode = state.currentDisplayMode;
+    state.currentEvent.displayState.language = state.currentLanguage;
+    state.currentEvent.displayState.manualSource = manualSource || state.currentEvent.displayState.manualSource || '';
+    state.currentEvent.displayState.manualSourceLang = state.manualSourceLang;
+  }
+  syncLanguageOptions({ ...state.currentEvent, displayState: { ...(state.currentEvent?.displayState || {}), mode: state.currentDisplayMode, manualSourceLang: state.manualSourceLang }, songState: state.songState });
   renderDisplay();
 });
 

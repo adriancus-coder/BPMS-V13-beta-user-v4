@@ -136,9 +136,18 @@ function getCurrentDisplayPreviewText() {
   if (!currentEvent) return '';
   if (currentEvent.displayState?.blackScreen) return 'Main screen is currently black.';
   if (currentEvent.displayState?.mode === 'manual') {
-    return currentEvent.displayState?.manualSource || 'Pinned text mode is selected.';
+    if (currentEvent.displayState?.language === (currentEvent.displayState?.manualSourceLang || currentEvent.sourceLang || 'ro')) {
+      return currentEvent.displayState?.manualSource || 'Pinned text mode is selected.';
+    }
+    return currentEvent.displayState?.manualTranslations?.[currentEvent.displayState?.language]
+      || currentEvent.displayState?.manualSource
+      || 'Pinned text mode is selected.';
   }
   if (currentEvent.displayState?.mode === 'song') {
+    const songSourceLang = currentEvent.songState?.sourceLang || currentEvent.sourceLang || 'ro';
+    if (currentEvent.displayState?.language === songSourceLang) {
+      return currentEvent.songState?.activeBlock || 'Song is selected, but no active verse is on screen yet.';
+    }
     return currentEvent.songState?.translations?.[currentEvent.displayState?.language]
       || currentEvent.songState?.activeBlock
       || 'Song is selected, but no active verse is on screen yet.';
@@ -164,10 +173,24 @@ function renderDisplayAuditSummary() {
   $('displayAuditPreview').textContent = getCurrentDisplayPreviewText() || 'Waiting for live content.';
 }
 
+function getDisplayLanguageChoicesClient() {
+  const langs = Array.isArray(currentEvent?.targetLangs) ? [...currentEvent.targetLangs] : [];
+  const mode = currentEvent?.displayState?.mode || 'auto';
+  if (mode === 'song') {
+    const sourceLang = String(currentEvent?.songState?.sourceLang || currentEvent?.sourceLang || '').trim();
+    if (sourceLang && !langs.includes(sourceLang)) langs.push(sourceLang);
+  }
+  if (mode === 'manual') {
+    const sourceLang = String(currentEvent?.displayState?.manualSourceLang || currentEvent?.sourceLang || '').trim();
+    if (sourceLang && !langs.includes(sourceLang)) langs.push(sourceLang);
+  }
+  return langs;
+}
+
 function renderQuickLanguageButtons() {
   const box = $('displayLanguageQuickButtons');
   if (!box) return;
-  const langs = currentEvent?.targetLangs || [];
+  const langs = getDisplayLanguageChoicesClient();
   if (!langs.length) {
     box.innerHTML = '<div class="muted">Open an event to see available languages.</div>';
     return;
@@ -210,10 +233,11 @@ const remoteProfileLabels = {
 };
 
 function getCurrentDisplayDraft() {
+  const displayLangChoices = getDisplayLanguageChoicesClient();
   return {
     mode: currentEvent?.displayState?.blackScreen ? 'auto' : (currentEvent?.displayState?.mode || 'auto'),
     theme: $('displayThemeSelect')?.value || currentEvent?.displayState?.theme || 'dark',
-    language: $('displayLanguageSelect')?.value || currentEvent?.displayState?.language || currentEvent?.targetLangs?.[0] || 'no',
+    language: $('displayLanguageSelect')?.value || currentEvent?.displayState?.language || displayLangChoices[0] || currentEvent?.targetLangs?.[0] || 'no',
     backgroundPreset: $('displayBackgroundPresetSelect')?.value || currentEvent?.displayState?.backgroundPreset || 'none',
     customBackground: $('displayBackgroundInput')?.value?.trim() || currentEvent?.displayState?.customBackground || '',
     showClock: !!$('displayShowClockBox')?.checked,
@@ -321,7 +345,7 @@ function refreshDisplayControls() {
     themeSelect.value = currentEvent?.displayState?.theme || 'dark';
   }
   if (languageSelect) {
-    const langs = currentEvent?.targetLangs || [];
+    const langs = getDisplayLanguageChoicesClient();
     languageSelect.innerHTML = langs.map((lang) => `<option value="${lang}">${escapeHtml(langLabel(lang))}</option>`).join('');
     languageSelect.value = currentEvent?.displayState?.language || langs[0] || 'no';
   }
@@ -432,9 +456,11 @@ function fillGlossaryLangs(targetLangs = []) {
 function fillLanguageSelectors() {
   const sourceSelect = $('sourceLang');
   const songSourceSelect = $('songSourceLang');
+  const manualSourceSelect = $('manualSourceLang');
   const targetBox = $('targetLangList');
   sourceSelect.innerHTML = '';
   if (songSourceSelect) songSourceSelect.innerHTML = '';
+  if (manualSourceSelect) manualSourceSelect.innerHTML = '';
   targetBox.innerHTML = '';
   Object.entries(availableLanguages).forEach(([code, label]) => {
     const option = document.createElement('option');
@@ -448,6 +474,13 @@ function fillLanguageSelectors() {
       songOption.textContent = label;
       if (code === 'ro') songOption.selected = true;
       songSourceSelect.appendChild(songOption);
+    }
+    if (manualSourceSelect) {
+      const manualOption = document.createElement('option');
+      manualOption.value = code;
+      manualOption.textContent = label;
+      if (code === 'ro') manualOption.selected = true;
+      manualSourceSelect.appendChild(manualOption);
     }
 
     const checked = ['no', 'en'].includes(code);
@@ -836,6 +869,7 @@ function renderPinnedTextLibrary(items = []) {
         <span class="name">${escapeHtml(item.title || 'Untitled')}</span>
       </summary>
       <div class="library-card-body">
+        <div class="small"><b>Language:</b> ${escapeHtml(langLabel(item.sourceLang || currentEvent?.sourceLang || 'ro'))}</div>
         <div class="small">${escapeHtmlWithBreaks(String(item.text || '').slice(0, 240))}${String(item.text || '').length > 240 ? '...' : ''}</div>
         <div class="actions">
           <button class="btn btn-dark" type="button" data-manual-library-action="load" data-manual-library-id="${item.id}">Load in editor</button>
@@ -1305,6 +1339,7 @@ async function openEventById(eventId) {
   fillGlossaryLangs(currentEvent.targetLangs || []);
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
+  if ($('manualSourceLang')) $('manualSourceLang').value = currentEvent.displayState?.manualSourceLang || currentEvent.sourceLang || 'ro';
   refreshDisplayControls();
   renderSongHistory(currentEvent.songHistory || []);
   await loadSongLibrary();
@@ -1333,6 +1368,7 @@ async function createEvent() {
   currentEvent = data.event;
   populateEventLinks();
   fillGlossaryLangs(currentEvent.targetLangs || []);
+  if ($('manualSourceLang')) $('manualSourceLang').value = currentEvent.displayState?.manualSourceLang || currentEvent.sourceLang || 'ro';
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
   refreshDisplayControls();
@@ -1586,12 +1622,13 @@ async function sendManualText(target = 'auto') {
   if (!currentEvent) return alert('Open or create an event first.');
   const title = $('manualTitle')?.value.trim() || '';
   const text = $('manualText').value.trim();
+  const sourceLang = $('manualSourceLang')?.value || currentEvent?.sourceLang || 'ro';
   if (!text) return;
 
   if (target === 'manual') {
     const res = await fetch(
       `/api/events/${currentEvent.id}/display/manual`,
-      adminJsonOptions('POST', { text, title })
+      adminJsonOptions('POST', { text, title, sourceLang })
     );
     const data = await res.json();
     if (!data.ok) {
@@ -1619,18 +1656,20 @@ async function sendManualText(target = 'auto') {
 
   if ($('manualTitle')) $('manualTitle').value = '';
   $('manualText').value = '';
+  if ($('manualSourceLang')) $('manualSourceLang').value = currentEvent?.sourceLang || 'ro';
   lastManualEnterAt = 0;
 }
 
 async function savePinnedTextToLibrary() {
   const title = $('manualTitle')?.value.trim() || '';
   const text = $('manualText')?.value.trim() || '';
+  const sourceLang = $('manualSourceLang')?.value || currentEvent?.sourceLang || 'ro';
   if (!title || !text) {
     alert('Add both a title and text before saving.');
     return;
   }
   try {
-    const res = await fetch('/api/pinned-text-library', globalJsonOptions('POST', { title, text }));
+    const res = await fetch('/api/pinned-text-library', globalJsonOptions('POST', { title, text, sourceLang }));
     const data = await res.json();
     if (!data.ok) {
       alert(data.error || 'Could not save pinned text.');
@@ -1640,6 +1679,7 @@ async function savePinnedTextToLibrary() {
     renderPinnedTextLibrary(currentPinnedTextLibrary);
     $('manualTitle').value = '';
     $('manualText').value = '';
+    if ($('manualSourceLang')) $('manualSourceLang').value = currentEvent?.sourceLang || 'ro';
     lastManualEnterAt = 0;
     setStatus('Saved to pinned text library.');
   } catch (err) {
@@ -1677,6 +1717,7 @@ socket.on('joined_event', ({ event, role }) => {
   if (role !== 'admin') return;
   currentEvent = event;
   if ($('songSourceLang')) $('songSourceLang').value = currentEvent.songState?.sourceLang || currentEvent.sourceLang || 'ro';
+  if ($('manualSourceLang')) $('manualSourceLang').value = currentEvent.displayState?.manualSourceLang || currentEvent.sourceLang || 'ro';
   $('speed').value = event.speed || 'balanced';
   currentVolume = event.audioVolume;
   currentMuted = event.audioMuted;
@@ -1757,7 +1798,7 @@ socket.on('song_clear', () => {
   renderActiveEventBadge(currentEvent);
   renderDisplayAuditSummary();
 });
-socket.on('display_mode_changed', ({ mode, blackScreen, theme, language, backgroundPreset, customBackground, showClock, clockPosition, textSize, screenStyle, sceneLabel, previousState, presets }) => {
+socket.on('display_mode_changed', ({ mode, blackScreen, theme, language, backgroundPreset, customBackground, showClock, clockPosition, textSize, screenStyle, sceneLabel, manualSourceLang, previousState, presets }) => {
   if (!currentEvent) return;
   currentEvent.displayState = currentEvent.displayState || {};
   currentEvent.displayState.mode = mode;
@@ -1771,6 +1812,7 @@ socket.on('display_mode_changed', ({ mode, blackScreen, theme, language, backgro
   currentEvent.displayState.textSize = textSize || currentEvent.displayState.textSize || 'large';
   currentEvent.displayState.screenStyle = screenStyle || currentEvent.displayState.screenStyle || 'focus';
   currentEvent.displayState.sceneLabel = sceneLabel || '';
+  currentEvent.displayState.manualSourceLang = manualSourceLang || currentEvent.displayState.manualSourceLang || currentEvent.sourceLang || 'ro';
   currentEvent.displayStatePrevious = previousState || null;
   if (Array.isArray(presets)) {
     currentEvent.displayPresets = presets;
@@ -1786,7 +1828,7 @@ socket.on('display_theme_changed', ({ theme }) => {
   currentEvent.displayState.theme = theme || 'dark';
   refreshDisplayControls();
 });
-socket.on('display_manual_update', ({ mode, blackScreen, theme, language, backgroundPreset, customBackground, showClock, clockPosition, textSize, screenStyle, sceneLabel, manualSource, manualTranslations, updatedAt, previousState, presets }) => {
+socket.on('display_manual_update', ({ mode, blackScreen, theme, language, backgroundPreset, customBackground, showClock, clockPosition, textSize, screenStyle, sceneLabel, manualSource, manualSourceLang, manualTranslations, updatedAt, previousState, presets }) => {
   if (!currentEvent) return;
   currentEvent.displayState = currentEvent.displayState || {};
   currentEvent.displayState.mode = mode || 'manual';
@@ -1801,6 +1843,7 @@ socket.on('display_manual_update', ({ mode, blackScreen, theme, language, backgr
   currentEvent.displayState.screenStyle = screenStyle || currentEvent.displayState.screenStyle || 'focus';
   currentEvent.displayState.sceneLabel = sceneLabel || '';
   currentEvent.displayState.manualSource = manualSource || '';
+  currentEvent.displayState.manualSourceLang = manualSourceLang || currentEvent.displayState.manualSourceLang || currentEvent.sourceLang || 'ro';
   currentEvent.displayState.manualTranslations = manualTranslations || {};
   currentEvent.displayState.updatedAt = updatedAt || currentEvent.displayState.updatedAt || null;
   currentEvent.displayStatePrevious = previousState || null;
@@ -2055,6 +2098,7 @@ $('manualLibraryList')?.addEventListener('click', async (e) => {
   if (action === 'load') {
     if ($('manualTitle')) $('manualTitle').value = item.title || '';
     $('manualText').value = item.text || '';
+    if ($('manualSourceLang')) $('manualSourceLang').value = item.sourceLang || currentEvent?.sourceLang || 'ro';
     switchTab('manual');
     setStatus('Pinned text loaded into editor.');
     return;
@@ -2062,6 +2106,7 @@ $('manualLibraryList')?.addEventListener('click', async (e) => {
   if (action === 'send') {
     if ($('manualTitle')) $('manualTitle').value = item.title || '';
     $('manualText').value = item.text || '';
+    if ($('manualSourceLang')) $('manualSourceLang').value = item.sourceLang || currentEvent?.sourceLang || 'ro';
     await sendManualText('manual');
     return;
   }
