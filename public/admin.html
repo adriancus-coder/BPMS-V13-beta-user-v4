@@ -12,13 +12,13 @@
       <div class="brand-wrap">
         <div class="eyebrow">Sanctuary Voice Admin</div>
         <div class="brand">Sanctuary Voice</div>
-        <div class="brand-sub">Live translation for church services, from one control center for Main Screen, participant view, and Song mode.</div>
+        <div class="brand-sub">Live translation for church services, from one control center for Main Screen, participant view, and Song.</div>
       </div>
 
       <div class="info-card soft-card sidebar-meta-card">
         <div class="label">Service snapshot</div>
         <div id="openedEventBadge" class="metric-text">No event opened</div>
-        <div class="muted">Move quickly between live control, transcript, events, Main Screen, and Song mode.</div>
+        <div class="muted">Move quickly between live control, transcript, events, Main Screen, and Song.</div>
       </div>
 
       <nav class="sidebar-nav">
@@ -26,7 +26,7 @@
         <button class="nav-btn" data-tab="transcript" type="button">Transcript</button>
         <button class="nav-btn" data-tab="events" type="button">Events</button>
         <button class="nav-btn" data-tab="mainscreen" type="button">Main Screen</button>
-        <button class="nav-btn" data-tab="song" type="button">Song mode</button>
+        <button class="nav-btn" data-tab="song" type="button">Song</button>
         <button class="nav-btn" data-tab="glossary" type="button">Glossary</button>
         <button class="nav-btn" data-tab="manual" type="button">Quick Text</button>
       </nav>
@@ -34,7 +34,7 @@
       <div class="sidebar-screen-links">
         <a class="screen-link-card" href="/translate" target="_blank" rel="noreferrer">
           <span class="screen-link-title">Main Screen</span>
-          <span class="screen-link-copy">Unified presentation screen for live translation and Song mode.</span>
+          <span class="screen-link-copy">Unified presentation screen for live translation and Song.</span>
         </a>
         <a class="screen-link-card" href="/participant" target="_blank" rel="noreferrer">
           <span class="screen-link-title">Participant Phone View</span>
@@ -48,7 +48,7 @@
         <div class="hero-copy-block">
           <div class="eyebrow">Sanctuary Voice</div>
           <h1>Operator Dashboard</h1>
-          <div class="muted">Control live translation, Song mode, and delivery to the room and participant devices.</div>
+          <div class="muted">Control live translation, Song, and delivery to the room and participant devices.</div>
         </div>
         <div class="hero-status-grid">
           <div class="hero-status-card">
@@ -193,7 +193,7 @@
                 <label>Start mode</label>
                 <select id="eventModePreset">
                   <option value="live" selected>Live Translate</option>
-                  <option value="song">Song mode</option>
+                  <option value="song">Song</option>
                 </select>
               </div>
             </div>
@@ -465,6 +465,8 @@
             </div>
             <label>Title</label>
             <input id="songTitle" type="text" placeholder="Amazing Grace">
+            <label>Song language</label>
+            <select id="songSourceLang"></select>
             <label>Song text or lyrics</label>
             <textarea id="songText" class="song-textarea" placeholder="Paste song lyrics, chorus, prayer, announcement or other lyrics here."></textarea>
             <div class="button-row">
@@ -476,8 +478,8 @@
               <button id="songNextBtn" class="btn btn-dark" type="button">Next verse</button>
             </div>
             <div class="info-card soft-card">
-              <div class="label">Song mode preview</div>
-              <div id="songPreview" class="song-preview">Song mode text will appear here.</div>
+              <div class="label">Song preview</div>
+              <div id="songPreview" class="song-preview">Song text will appear here.</div>
             </div>
             <div id="songBlocksList" class="history-list">
               <div class="muted">Use Save in library or Send first verse.</div>

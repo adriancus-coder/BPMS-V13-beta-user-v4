@@ -124,6 +124,11 @@ function getTextToDisplay() {
     return '';
   }
   if (state.currentDisplayMode === 'song' && state.songState) {
+    const sourceLang = state.songState?.sourceLang || state.currentEvent?.sourceLang || 'ro';
+    if (state.currentLanguage === sourceLang) {
+      return state.songState.activeBlock
+        || 'Waiting for song text...';
+    }
     return state.songState.translations?.[state.currentLanguage]
       || state.songState.activeBlock
       || 'Waiting for song translation...';
@@ -143,14 +148,14 @@ function updateMeta() {
   const modeLabels = {
     auto: 'Auto',
     manual: 'Pinned text',
-    song: 'Song mode'
+    song: 'Song'
   };
   $('translateModeBadge').textContent = state.blackScreen ? 'Black screen' : (modeLabels[state.currentDisplayMode] || 'Auto');
   $('translateLanguageLabel').textContent = langLabel(state.currentLanguage);
-  $('translateEventName').textContent = state.currentEvent?.name || 'BPMS Main Screen';
+  $('translateEventName').textContent = state.currentEvent?.name || 'Sanctuary Voice Main Screen';
   $('translateScreenLabel').textContent = state.blackScreen
     ? ''
-    : (state.currentDisplayMode === 'song' ? 'Song mode' : state.currentDisplayMode === 'manual' ? 'Pinned text' : 'Live translation');
+    : (state.currentDisplayMode === 'song' ? 'Song' : state.currentDisplayMode === 'manual' ? 'Pinned text' : 'Live translation');
 }
 
 function autoFitText() {

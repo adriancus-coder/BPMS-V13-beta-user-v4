@@ -141,7 +141,7 @@ function getCurrentDisplayPreviewText() {
   if (currentEvent.displayState?.mode === 'song') {
     return currentEvent.songState?.translations?.[currentEvent.displayState?.language]
       || currentEvent.songState?.activeBlock
-      || 'Song mode is selected, but no active verse is on screen yet.';
+      || 'Song is selected, but no active verse is on screen yet.';
   }
   const latestEntry = getLatestTranscriptEntry();
   return latestEntry?.translations?.[currentEvent.displayState?.language]
@@ -290,7 +290,7 @@ function renderActiveEventBadge(event) {
   badge.className = event.isActive ? 'status-pill active' : 'status-pill';
   opened.textContent = `Opened: ${event.name}${extra}`;
   const isSongMode = event.mode === 'song';
-  $('songModeBadge').textContent = isSongMode ? 'Song mode live' : (event.displayState?.mode === 'manual' ? 'Pinned text live' : 'Live follow');
+  $('songModeBadge').textContent = isSongMode ? 'Song live' : (event.displayState?.mode === 'manual' ? 'Pinned text live' : 'Live follow');
   $('songModeBadge').className = (isSongMode || event.displayState?.mode === 'manual') ? 'status-pill active' : 'status-pill';
 }
 
@@ -424,8 +424,10 @@ function fillGlossaryLangs(targetLangs = []) {
 
 function fillLanguageSelectors() {
   const sourceSelect = $('sourceLang');
+  const songSourceSelect = $('songSourceLang');
   const targetBox = $('targetLangList');
   sourceSelect.innerHTML = '';
+  if (songSourceSelect) songSourceSelect.innerHTML = '';
   targetBox.innerHTML = '';
   Object.entries(availableLanguages).forEach(([code, label]) => {
     const option = document.createElement('option');
@@ -433,6 +435,13 @@ function fillLanguageSelectors() {
     option.textContent = label;
     if (code === 'ro') option.selected = true;
     sourceSelect.appendChild(option);
+    if (songSourceSelect) {
+      const songOption = document.createElement('option');
+      songOption.value = code;
+      songOption.textContent = label;
+      if (code === 'ro') songOption.selected = true;
+      songSourceSelect.appendChild(songOption);
+    }
 
     const checked = ['no', 'en'].includes(code);
     const row = document.createElement('label');
@@ -642,6 +651,10 @@ async function refreshEventList() {
   renderGlobalSongLibrary(currentGlobalSongLibrary);
 }
 
+function getSongSourceLang() {
+  return $('songSourceLang')?.value || currentEvent?.songState?.sourceLang || currentEvent?.sourceLang || 'ro';
+}
+
 async function loadDisplayPresets() {
   if (!currentEvent) return;
   try {
@@ -694,7 +707,7 @@ function renderSongStateLegacy(songState) {
   const libraryCount = Array.isArray(currentGlobalSongLibrary) ? currentGlobalSongLibrary.length : 0;
   const historyCount = Array.isArray(currentEvent?.songHistory) ? currentEvent.songHistory.length : 0;
   $('songCurrentIndex').textContent = `Saved: ${libraryCount} · History: ${historyCount}`;
-  $('songPreview').textContent = currentEvent?.displayState?.manualSource || 'Song mode text will appear here.';
+  $('songPreview').textContent = currentEvent?.displayState?.manualSource || 'Song text will appear here.';
   $('songBlocksList').innerHTML = '<div class="muted">Use Save in library or Send first verse live.</div>';
 }
 
@@ -712,9 +725,10 @@ function renderSongState(songState) {
   const labels = Array.isArray(songState?.blockLabels) ? songState.blockLabels : [];
   const currentIndex = Number.isInteger(songState?.currentIndex) ? songState.currentIndex : -1;
   const activeBlock = typeof songState?.activeBlock === 'string' ? songState.activeBlock : '';
+  const sourceLang = songState?.sourceLang || getSongSourceLang();
 
-  summaryEl.textContent = `Saved: ${libraryCount} · History: ${historyCount}`;
-  previewEl.textContent = activeBlock || currentEvent?.displayState?.manualSource || 'Song mode text will appear here.';
+  summaryEl.textContent = `Saved: ${libraryCount} · History: ${historyCount} · Language: ${langLabel(sourceLang)}`;
+  previewEl.textContent = activeBlock || currentEvent?.displayState?.manualSource || 'Song text will appear here.';
 
   if (!blocks.length) {
     blocksEl.innerHTML = '<div class="muted">Use Save in library or Send first verse live.</div>';
@@ -749,6 +763,7 @@ function renderGlobalSongLibrary(items = []) {
         <span class="name">${escapeHtml(item.title || 'Untitled')}</span>
       </summary>
       <div class="library-card-body">
+        <div class="small"><b>Language:</b> ${escapeHtml(langLabel(item.sourceLang || currentEvent?.sourceLang || 'ro'))}</div>
         <div class="actions">
           <button class="btn btn-dark" data-global-song-action="load" data-global-song-id="${item.id}">Load in editor</button>
           <button class="btn btn-primary" data-global-song-action="send" data-global-song-id="${item.id}">Send first verse</button>
@@ -835,9 +850,11 @@ async function loadGlobalSongLibrary() {
 function fillSongEditor(item) {
   $('songTitle').value = item?.title || '';
   $('songText').value = item?.text || '';
+  if ($('songSourceLang')) $('songSourceLang').value = item?.sourceLang || currentEvent?.sourceLang || 'ro';
   const previewBlocks = splitSongBlocksLocal(item?.text || '');
   renderSongState({
     title: item?.title || '',
+    sourceLang: item?.sourceLang || currentEvent?.sourceLang || 'ro',
     blocks: previewBlocks,
     blockLabels: Array.isArray(item?.labels) ? item.labels : [],
     currentIndex: previewBlocks.length ? 0 : -1,
@@ -852,8 +869,9 @@ async function saveSongToLibrary() {
   const title = $('songTitle').value.trim();
   const text = $('songText').value.trim();
   const labels = getSongEditorLabels();
+  const sourceLang = getSongSourceLang();
   if (!title || !text) return alert('Complete title and text first.');
-  const res = await fetch('/api/global-song-library', globalJsonOptions('POST', { title, text, labels }));
+  const res = await fetch('/api/global-song-library', globalJsonOptions('POST', { title, text, labels, sourceLang }));
   const data = await res.json();
   if (!data.ok) return alert(data.error || 'Could not save item.');
   currentGlobalSongLibrary = data.globalSongLibrary || [];
@@ -868,8 +886,9 @@ async function sendSongItemToLive(item) {
   const title = String(item?.title || '').trim();
   const text = String(item?.text || '').trim();
   const labels = Array.isArray(item?.labels) ? item.labels : getSongEditorLabels();
+  const sourceLang = String(item?.sourceLang || getSongSourceLang()).trim() || currentEvent?.sourceLang || 'ro';
   if (!text) return alert('Write text first.');
-  const res = await fetch(`/api/events/${currentEvent.id}/song/load`, adminJsonOptions('POST', { title, text, labels }));
+  const res = await fetch(`/api/events/${currentEvent.id}/song/load`, adminJsonOptions('POST', { title, text, labels, sourceLang }));
   const data = await res.json();
   if (!data.ok) return alert(data.error || 'Could not start verse mode.');
   currentEvent = data.event || currentEvent;
@@ -882,7 +901,8 @@ async function sendSongItemToLive(item) {
 async function sendSongToLive() {
   await sendSongItemToLive({
     title: $('songTitle').value.trim(),
-    text: $('songText').value.trim()
+    text: $('songText').value.trim(),
+    sourceLang: getSongSourceLang()
   });
 }
 
@@ -924,7 +944,7 @@ async function goToPrevSongBlock() {
 async function setDisplayMode(mode) {
   if (!currentEvent) return;
   if (mode === 'song' && !currentEvent.songState?.activeBlock && !currentEvent.songState?.translations) {
-    return alert('Start Song mode first so there is an active verse on screen.');
+    return alert('Start Song first so there is an active verse on screen.');
   }
   const res = await fetch(`/api/events/${currentEvent.id}/display/mode`, adminJsonOptions('POST', { mode }));
   const data = await res.json();
@@ -939,7 +959,7 @@ async function setDisplayMode(mode) {
   const statusMap = {
     auto: 'Main screen switched to live follow.',
     manual: 'Main screen switched to pinned text.',
-    song: 'Main screen switched to Song mode.'
+    song: 'Main screen switched to Song.'
   };
   setStatus(statusMap[mode] || 'Main screen mode updated.');
 }
@@ -1612,6 +1632,7 @@ async function showSongIndex(index) {
 async function clearSong() {
   $('songTitle').value = '';
   $('songText').value = '';
+  if ($('songSourceLang')) $('songSourceLang').value = currentEvent?.sourceLang || 'ro';
   setStatus('Editor cleared.');
 }
 
@@ -1619,6 +1640,7 @@ async function clearSong() {
 socket.on('joined_event', ({ event, role }) => {
   if (role !== 'admin') return;
   currentEvent = event;
+  if ($('songSourceLang')) $('songSourceLang').value = currentEvent.songState?.sourceLang || currentEvent.sourceLang || 'ro';
   $('speed').value = event.speed || 'balanced';
   currentVolume = event.audioVolume;
   currentMuted = event.audioMuted;
@@ -1686,13 +1708,15 @@ socket.on('song_state', (songState) => {
   if (!currentEvent) return;
   currentEvent.songState = songState;
   currentEvent.mode = 'song';
+  if ($('songSourceLang')) $('songSourceLang').value = songState?.sourceLang || currentEvent.sourceLang || 'ro';
   renderSongState(songState);
   renderDisplayAuditSummary();
 });
 socket.on('song_clear', () => {
   if (!currentEvent) return;
-  currentEvent.songState = { title: '', blocks: [], blockLabels: [], currentIndex: -1, activeBlock: null, translations: {}, allTranslations: [], updatedAt: null };
+  currentEvent.songState = { title: '', sourceLang: currentEvent.sourceLang || 'ro', blocks: [], blockLabels: [], currentIndex: -1, activeBlock: null, translations: {}, allTranslations: [], updatedAt: null };
   currentEvent.mode = 'live';
+  if ($('songSourceLang')) $('songSourceLang').value = currentEvent.sourceLang || 'ro';
   renderSongState(currentEvent.songState);
   renderActiveEventBadge(currentEvent);
   renderDisplayAuditSummary();

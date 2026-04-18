@@ -138,6 +138,16 @@ function getTextForEntry(entry) {
   return entry?.translations?.[state.currentLanguage] || entry?.original || '';
 }
 
+function getSongTextForCurrentLanguage(songState) {
+  const sourceLang = songState?.sourceLang || state.currentEvent?.sourceLang || 'ro';
+  if (state.currentLanguage === sourceLang) {
+    return songState?.activeBlock || '';
+  }
+  return songState?.translations?.[state.currentLanguage]
+    || songState?.activeBlock
+    || '';
+}
+
 function getHistoryEntries() {
   const entries = sortEntries(state.currentEvent?.transcripts || []);
   if (entries.length <= 1) return [];
@@ -177,7 +187,10 @@ function detectPreferredSupportedLanguage(available = []) {
 
 function syncLanguageOptions(event) {
   const select = $('languageSelect');
-  const available = Array.from(new Set(event?.targetLangs || []));
+  const available = Array.from(new Set([
+    ...(event?.targetLangs || []),
+    (event?.mode === 'song' ? (event?.songState?.sourceLang || '') : '')
+  ].filter(Boolean)));
   select.innerHTML = '';
   available.forEach((code) => {
     const option = document.createElement('option');
@@ -198,10 +211,10 @@ function updateTopMeta() {
   $('participantEventName').textContent = state.currentEvent.name || 'Live event';
   const sourceName = langLabel(state.currentEvent.sourceLang || 'ro');
   const targetName = langLabel(state.currentLanguage);
-  $('participantModeBadge').textContent = state.currentMode === 'song' ? 'Song mode' : 'Live';
+  $('participantModeBadge').textContent = state.currentMode === 'song' ? 'Song' : 'Live';
   $('participantLanguageBadge').textContent = targetName;
   $('participantEventMeta').textContent = state.currentMode === 'song'
-    ? `Song mode · Translation: ${targetName}`
+    ? `Song · Output: ${targetName}`
     : `Input: ${sourceName} · Translation: ${targetName}`;
 }
 
@@ -236,7 +249,7 @@ function speakLatestEntry(entry) {
 
 function renderHistory() {
   if (state.currentMode === 'song') {
-    $('history').innerHTML = '<div class="muted">Song mode is active right now.</div>';
+    $('history').innerHTML = '<div class="muted">Song is active right now.</div>';
     return;
   }
   const entries = getHistoryEntries();
@@ -248,9 +261,7 @@ function renderHistory() {
 function renderLiveView({ announce = false } = {}) {
   if (!state.currentEvent) return;
   if (state.currentMode === 'song' && state.currentSongState) {
-    const songText = state.currentSongState.translations?.[state.currentLanguage]
-      || state.currentSongState.activeBlock
-      || 'Waiting for song translation...';
+    const songText = getSongTextForCurrentLanguage(state.currentSongState) || 'Waiting for song translation...';
     $('lastText').textContent = songText;
     renderHistory();
     updateTopMeta();
@@ -365,8 +376,9 @@ socket.on('active_event_changed', async () => {
 
 socket.on('mode_changed', ({ mode }) => {
   state.currentMode = mode || 'live';
+  syncLanguageOptions({ ...state.currentEvent, mode: state.currentMode, songState: state.currentSongState });
   if (mode === 'song') {
-    setStatus('Song mode active on public screen.');
+    setStatus('Song active on public screen.');
   } else {
     setStatus(state.serverAudioMuted ? 'Audio stopped by admin.' : 'Connected.');
   }
@@ -376,12 +388,14 @@ socket.on('mode_changed', ({ mode }) => {
 socket.on('song_state', (songState) => {
   state.currentMode = 'song';
   state.currentSongState = songState;
+  syncLanguageOptions({ ...state.currentEvent, mode: 'song', songState });
   renderLiveView({ announce: false });
 });
 
 socket.on('song_clear', () => {
   state.currentMode = 'live';
   state.currentSongState = null;
+  syncLanguageOptions({ ...state.currentEvent, mode: 'live', songState: null });
   renderLiveView({ announce: false });
 });
 
