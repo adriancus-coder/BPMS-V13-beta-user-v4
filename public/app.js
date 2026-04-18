@@ -1,7 +1,5 @@
 const socket = io();
 const $ = (id) => document.getElementById(id);
-const LIVE_AUDIO_CHUNK_MS = 8500;
-const MIN_AUDIO_CHUNK_BYTES = 18000;
 
 let currentEvent = null;
 let currentGlobalSongLibrary = [];
@@ -459,14 +457,10 @@ function fillLanguageSelectors() {
   const sourceSelect = $('sourceLang');
   const songSourceSelect = $('songSourceLang');
   const manualSourceSelect = $('manualSourceLang');
-  const liveSourceSelect = $('liveSourceLang');
   const targetBox = $('targetLangList');
   sourceSelect.innerHTML = '';
   if (songSourceSelect) songSourceSelect.innerHTML = '';
   if (manualSourceSelect) manualSourceSelect.innerHTML = '';
-  if (liveSourceSelect) {
-    liveSourceSelect.innerHTML = '<option value="auto">Auto detect</option>';
-  }
   targetBox.innerHTML = '';
   Object.entries(availableLanguages).forEach(([code, label]) => {
     const option = document.createElement('option');
@@ -488,13 +482,6 @@ function fillLanguageSelectors() {
       if (code === 'ro') manualOption.selected = true;
       manualSourceSelect.appendChild(manualOption);
     }
-    if (liveSourceSelect) {
-      const liveOption = document.createElement('option');
-      liveOption.value = code;
-      liveOption.textContent = label;
-      liveSourceSelect.appendChild(liveOption);
-    }
-
     const checked = ['no', 'en'].includes(code);
     const row = document.createElement('label');
     row.className = 'checkbox-item';
@@ -761,8 +748,7 @@ async function loadPinnedTextLibrary() {
 async function syncSpeedToEvent() {
   if (!currentEvent) return;
   const speed = $('speed').value || 'balanced';
-  const liveSourceLang = $('liveSourceLang')?.value || currentEvent?.sourceLang || 'ro';
-  const res = await fetch(`/api/events/${currentEvent.id}/settings`, adminJsonOptions('POST', { speed, liveSourceLang }));
+  const res = await fetch(`/api/events/${currentEvent.id}/settings`, adminJsonOptions('POST', { speed }));
   const data = await res.json();
   if (data.ok) currentEvent = data.event;
 }
@@ -1369,7 +1355,6 @@ async function openEventById(eventId) {
   currentEvent = data.event;
   populateEventLinks();
   $('speed').value = currentEvent.speed || 'balanced';
-  if ($('liveSourceLang')) $('liveSourceLang').value = currentEvent.liveSourceLang === 'auto' ? (currentEvent.sourceLang || 'ro') : (currentEvent.liveSourceLang || currentEvent.sourceLang || 'ro');
   currentVolume = currentEvent.audioVolume;
   currentMuted = currentEvent.audioMuted;
   $('volumeRange').value = String(currentVolume);
@@ -1584,7 +1569,7 @@ function getAudioFileInfo(mimeType) {
 }
 
 async function postAudioChunk(blob) {
-  if (!currentEvent || !blob || blob.size < MIN_AUDIO_CHUNK_BYTES) return;
+  if (!currentEvent || !blob || blob.size < 3500) return;
   const detectedType = blob.type || audioState.mimeType || 'audio/webm';
   const fileInfo = getAudioFileInfo(detectedType);
   const form = new FormData();
@@ -1596,7 +1581,7 @@ async function postAudioChunk(blob) {
 }
 
 function enqueueAudioBlob(blob) {
-  if (!blob || blob.size < MIN_AUDIO_CHUNK_BYTES) return;
+  if (!blob || blob.size < 3500) return;
   audioState.uploadQueue.push(blob);
   if (!audioState.busy) drainAudioUploadQueue().catch(console.error);
 }
@@ -1641,10 +1626,10 @@ async function startTranslation() {
       audioState.chunkTimer = null;
       if (audioState.recorder === recorder) audioState.recorder = null;
       if (audioState.running) startRecorderCycle();
-      if (blob.size >= MIN_AUDIO_CHUNK_BYTES) enqueueAudioBlob(blob);
+      if (blob.size >= 3500) enqueueAudioBlob(blob);
     };
     recorder.start();
-    audioState.chunkTimer = setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, LIVE_AUDIO_CHUNK_MS);
+    audioState.chunkTimer = setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, 5200);
   };
   startRecorderCycle();
   setStatus('On-Air. Translating from selected source.');
@@ -1989,7 +1974,6 @@ $('audioInput').addEventListener('change', async () => {
 $('startRecognitionBtn').addEventListener('click', startTranslation);
 $('stopRecognitionBtn').addEventListener('click', stopTranslation);
 $('backToLiveTextBtn')?.addEventListener('click', returnToLiveText);
-$('liveSourceLang')?.addEventListener('change', syncSpeedToEvent);
 $('copyParticipantBtn').addEventListener('click', () => copyField('participantLink', 'copyParticipantBtn'));
 $('copyTranslateBtn').addEventListener('click', () => copyField('translateLink', 'copyTranslateBtn'));
 $('copyRemoteControlBtn').addEventListener('click', () => copyField('remoteControlLink', 'copyRemoteControlBtn'));
