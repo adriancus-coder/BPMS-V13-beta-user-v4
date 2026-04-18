@@ -817,6 +817,46 @@ progress::-moz-progress-bar {
   gap: 12px;
 }
 
+.main-screen-audit-card {
+  gap: 14px;
+}
+
+.display-audit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.display-audit-value {
+  display: block;
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.display-audit-preview {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.56);
+  border: 1px solid var(--line);
+}
+
+.display-restore-row {
+  justify-content: flex-start;
+}
+
+.quick-language-row,
+.service-shortcuts-grid {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.quick-language-row .btn,
+.service-shortcuts-grid .btn {
+  min-width: 116px;
+}
+
 .participant-shell {
   max-width: 1180px;
   margin: 0 auto;
@@ -864,7 +904,7 @@ progress::-moz-progress-bar {
 
 .participant-controls {
   display: grid;
-  grid-template-columns: minmax(200px, 1fr) auto minmax(220px, 1fr);
+  grid-template-columns: minmax(200px, 1fr) auto minmax(220px, 1fr) auto;
   gap: 12px;
   align-items: end;
 }
@@ -889,6 +929,10 @@ progress::-moz-progress-bar {
 
 .participant-audio-actions {
   justify-content: center;
+}
+
+.participant-view-actions {
+  justify-content: flex-end;
 }
 
 .participant-live {
@@ -950,6 +994,43 @@ progress::-moz-progress-bar {
 
 .history-label {
   margin-top: 0;
+}
+
+.participant-shell.participant-compact {
+  gap: 12px;
+}
+
+.participant-shell.participant-compact .participant-header,
+.participant-shell.participant-compact .participant-controls,
+.participant-shell.participant-compact .participant-live {
+  padding: 14px;
+}
+
+.participant-shell.participant-compact .participant-live-stage {
+  min-height: 260px;
+  padding: 14px 16px;
+}
+
+.participant-shell.participant-compact .participant-main-text {
+  font-size: clamp(1.5rem, 3vw, 2.7rem);
+  line-height: 1.04;
+}
+
+.participant-shell.participant-compact .history-text {
+  font-size: 0.88rem;
+  line-height: 1.32;
+}
+
+.participant-shell.participant-focus .participant-premium-live {
+  grid-template-columns: 1fr;
+}
+
+.participant-shell.participant-focus .participant-history-panel {
+  display: none;
+}
+
+.participant-shell.participant-focus .participant-live-stage {
+  min-height: 440px;
 }
 
 .display-body,

@@ -3,6 +3,7 @@ const $ = (id) => document.getElementById(id);
 
 let currentEvent = null;
 let currentGlobalSongLibrary = [];
+let currentPinnedTextLibrary = [];
 let availableEventsList = [];
 let currentDisplayPresets = [];
 let currentVolume = 70;
@@ -110,6 +111,71 @@ function escapeHtmlWithBreaks(text) {
 function formatDateTime(value) {
   if (!value) return '-';
   return new Date(value).toLocaleString();
+}
+
+function displayModeLabel(mode, blackScreen = false) {
+  if (blackScreen) return 'Black screen';
+  return ({
+    auto: 'Live follow',
+    manual: 'Pinned text',
+    song: 'Song'
+  })[mode] || 'Live follow';
+}
+
+function displayThemeLabel(theme) {
+  return theme === 'light' ? 'Black on white' : 'White on black';
+}
+
+function getLatestTranscriptEntry() {
+  const entries = Array.isArray(currentEvent?.transcripts) ? [...currentEvent.transcripts] : [];
+  entries.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+  return entries.length ? entries[entries.length - 1] : null;
+}
+
+function getCurrentDisplayPreviewText() {
+  if (!currentEvent) return '';
+  if (currentEvent.displayState?.blackScreen) return 'Main screen is currently black.';
+  if (currentEvent.displayState?.mode === 'manual') {
+    return currentEvent.displayState?.manualSource || 'Pinned text mode is selected.';
+  }
+  if (currentEvent.displayState?.mode === 'song') {
+    return currentEvent.songState?.translations?.[currentEvent.displayState?.language]
+      || currentEvent.songState?.activeBlock
+      || 'Song mode is selected, but no active verse is on screen yet.';
+  }
+  const latestEntry = getLatestTranscriptEntry();
+  return latestEntry?.translations?.[currentEvent.displayState?.language]
+    || latestEntry?.original
+    || 'Waiting for live translation...';
+}
+
+function renderDisplayAuditSummary() {
+  const sceneEl = $('displayAuditScene');
+  if (!sceneEl) return;
+  const state = currentEvent?.displayState || {};
+  $('displayAuditScene').textContent = state.sceneLabel || displayModeLabel(state.mode, state.blackScreen);
+  $('displayAuditLanguage').textContent = state.blackScreen ? '-' : langLabel(state.language || 'no');
+  $('displayAuditTheme').textContent = displayThemeLabel(state.theme || 'dark');
+  $('displayAuditText').textContent = `${state.textSize || 'large'} · ${state.screenStyle || 'focus'}`;
+  $('displayAuditSource').textContent = state.blackScreen
+    ? 'Black screen'
+    : (state.mode === 'manual' ? 'Pinned text' : state.mode === 'song' ? 'Song verse' : 'Live translation');
+  $('displayAuditUpdated').textContent = formatDateTime(state.updatedAt);
+  $('displayAuditPreview').textContent = getCurrentDisplayPreviewText() || 'Waiting for live content.';
+}
+
+function renderQuickLanguageButtons() {
+  const box = $('displayLanguageQuickButtons');
+  if (!box) return;
+  const langs = currentEvent?.targetLangs || [];
+  if (!langs.length) {
+    box.innerHTML = '<div class="muted">Open an event to see available languages.</div>';
+    return;
+  }
+  box.innerHTML = langs.map((lang) => {
+    const active = currentEvent?.displayState?.language === lang;
+    return `<button class="btn ${active ? 'btn-primary' : 'btn-dark'}" type="button" data-quick-language="${lang}">${escapeHtml(langLabel(lang))}</button>`;
+  }).join('');
 }
 
 function filterAndSortLibrary(items = [], searchId, sortId) {
@@ -238,16 +304,10 @@ function refreshDisplayControls() {
   const clockPositionSelect = $('displayClockPositionSelect');
   const textSizeSelect = $('displayTextSizeSelect');
   const screenStyleSelect = $('displayScreenStyleSelect');
+  const restoreBtn = $('displayRestoreBtn');
   if (modeLabel) {
-    const modeMap = {
-      auto: 'Live follow',
-      manual: 'Pinned text',
-      song: 'Song'
-    };
-    const modeText = currentEvent?.displayState?.blackScreen
-      ? 'Black screen'
-      : (modeMap[currentEvent?.displayState?.mode] || 'Live follow');
-    const themeText = currentEvent?.displayState?.theme === 'light' ? 'Black on white' : 'White on black';
+    const modeText = displayModeLabel(currentEvent?.displayState?.mode, currentEvent?.displayState?.blackScreen);
+    const themeText = displayThemeLabel(currentEvent?.displayState?.theme);
     modeLabel.textContent = `Main screen: ${modeText} · Theme: ${themeText}`;
   }
   if (themeSelect) {
@@ -276,6 +336,11 @@ function refreshDisplayControls() {
   if (screenStyleSelect) {
     screenStyleSelect.value = currentEvent?.displayState?.screenStyle || 'focus';
   }
+  if (restoreBtn) {
+    restoreBtn.disabled = !currentEvent?.displayStatePrevious;
+  }
+  renderQuickLanguageButtons();
+  renderDisplayAuditSummary();
   renderDisplayPresets(currentEvent?.displayPresets || currentDisplayPresets || []);
 }
 
@@ -556,6 +621,18 @@ async function loadDisplayPresets() {
   }
 }
 
+async function loadPinnedTextLibrary() {
+  try {
+    const res = await fetch('/api/pinned-text-library');
+    const data = await res.json();
+    if (!data.ok) return;
+    currentPinnedTextLibrary = data.pinnedTextLibrary || [];
+    renderPinnedTextLibrary(currentPinnedTextLibrary);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
 async function syncSpeedToEvent() {
   if (!currentEvent) return;
   const speed = $('speed').value || 'balanced';
@@ -648,6 +725,32 @@ function renderGlobalSongLibrary(items = []) {
             <button class="btn btn-dark" data-global-song-action="add" data-global-song-id="${item.id}">Add to event</button>
             <button data-global-song-action="delete" data-global-song-id="${item.id}">Delete</button>
           </div>
+        </div>
+      </div>
+    </details>
+  `).join('');
+}
+
+function renderPinnedTextLibrary(items = []) {
+  const box = $('manualLibraryList');
+  if (!box) return;
+  currentPinnedTextLibrary = Array.isArray(items) ? items : [];
+  const filteredItems = filterAndSortLibrary(currentPinnedTextLibrary, 'manualLibrarySearch', 'manualLibrarySort');
+  if (!filteredItems.length) {
+    box.innerHTML = '<div class="muted">No pinned texts saved yet.</div>';
+    return;
+  }
+  box.innerHTML = filteredItems.map((item) => `
+    <details class="event-card library-card-details">
+      <summary class="library-card-summary">
+        <span class="name">${escapeHtml(item.title || 'Untitled')}</span>
+      </summary>
+      <div class="library-card-body">
+        <div class="small">${escapeHtmlWithBreaks(String(item.text || '').slice(0, 240))}${String(item.text || '').length > 240 ? '...' : ''}</div>
+        <div class="actions">
+          <button class="btn btn-dark" type="button" data-manual-library-action="load" data-manual-library-id="${item.id}">Load in editor</button>
+          <button class="btn btn-primary" type="button" data-manual-library-action="send" data-manual-library-id="${item.id}">Send to main screen</button>
+          <button type="button" data-manual-library-action="delete" data-manual-library-id="${item.id}">Delete</button>
         </div>
       </div>
     </details>
@@ -791,6 +894,7 @@ async function setDisplayMode(mode) {
     currentEvent = data.event;
   }
   currentEvent.displayState = data.displayState || currentEvent.displayState;
+  currentEvent.displayStatePrevious = data.previousState || currentEvent.displayStatePrevious || null;
   refreshDisplayControls();
   renderActiveEventBadge(currentEvent);
   const statusMap = {
@@ -807,6 +911,7 @@ async function setDisplayTheme(theme) {
   const data = await res.json();
   if (!data.ok) return alert(data.error || 'Could not change display theme.');
   currentEvent.displayState = data.displayState || currentEvent.displayState;
+  currentEvent.displayStatePrevious = data.previousState || currentEvent.displayStatePrevious || null;
   refreshDisplayControls();
   setStatus(theme === 'light' ? 'Display theme set to black on white.' : 'Display theme set to white on black.');
 }
@@ -817,6 +922,7 @@ async function setDisplayLanguage(language) {
   const data = await res.json();
   if (!data.ok) return alert(data.error || 'Could not change screen language.');
   currentEvent.displayState = data.displayState || currentEvent.displayState;
+  currentEvent.displayStatePrevious = data.previousState || currentEvent.displayStatePrevious || null;
   refreshDisplayControls();
   setStatus('Main screen language updated.');
 }
@@ -840,6 +946,7 @@ async function saveDisplaySettings() {
   const data = await res.json();
   if (!data.ok) return alert(data.error || 'Could not save main screen settings.');
   currentEvent.displayState = data.displayState || currentEvent.displayState;
+  currentEvent.displayStatePrevious = data.previousState || currentEvent.displayStatePrevious || null;
   refreshDisplayControls();
   setStatus('Main screen settings saved.');
 }
@@ -865,11 +972,42 @@ async function applyDisplayPreset(presetId) {
   const data = await res.json();
   if (!data.ok) return alert(data.error || 'Could not apply preset.');
   currentEvent.displayState = data.displayState || currentEvent.displayState;
+  currentEvent.displayStatePrevious = data.previousState || currentEvent.displayStatePrevious || null;
   currentEvent.displayPresets = data.presets || currentEvent.displayPresets || [];
   currentDisplayPresets = currentEvent.displayPresets;
   refreshDisplayControls();
   renderActiveEventBadge(currentEvent);
   setStatus('Scene preset applied.');
+}
+
+async function restoreLastDisplayState() {
+  if (!currentEvent) return alert('Open or create an event first.');
+  const res = await fetch(`/api/events/${currentEvent.id}/display/restore-last`, adminJsonOptions('POST'));
+  const data = await res.json();
+  if (!data.ok) return alert(data.error || 'Could not restore previous screen state.');
+  currentEvent = data.event || currentEvent;
+  currentEvent.displayState = data.displayState || currentEvent.displayState;
+  currentEvent.displayStatePrevious = data.previousState || currentEvent.displayStatePrevious || null;
+  refreshDisplayControls();
+  renderActiveEventBadge(currentEvent);
+  renderSongState(currentEvent.songState || {});
+  setStatus('Restored previous main screen state.');
+}
+
+async function applyDisplayShortcut(shortcut) {
+  if (!currentEvent) return alert('Open or create an event first.');
+  const res = await fetch(
+    `/api/events/${currentEvent.id}/display/shortcut`,
+    adminJsonOptions('POST', { shortcut, language: $('displayLanguageSelect')?.value || currentEvent.displayState?.language || 'no' })
+  );
+  const data = await res.json();
+  if (!data.ok) return alert(data.error || 'Could not apply service shortcut.');
+  currentEvent = data.event || currentEvent;
+  currentEvent.displayState = data.displayState || currentEvent.displayState;
+  currentEvent.displayStatePrevious = data.previousState || currentEvent.displayStatePrevious || null;
+  refreshDisplayControls();
+  renderActiveEventBadge(currentEvent);
+  setStatus(`${data.shortcut || 'Service shortcut'} applied.`);
 }
 
 async function deleteDisplayPreset(presetId) {
@@ -890,6 +1028,7 @@ async function blankMainScreen() {
   const data = await res.json();
   if (!data.ok) return alert(data.error || 'Could not blank main screen.');
   currentEvent = data.event || currentEvent;
+  currentEvent.displayStatePrevious = data.previousState || currentEvent.displayStatePrevious || null;
   refreshDisplayControls();
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
@@ -1350,13 +1489,14 @@ async function stopTranslation() {
 
 async function sendManualText(target = 'auto') {
   if (!currentEvent) return alert('Open or create an event first.');
+  const title = $('manualTitle')?.value.trim() || '';
   const text = $('manualText').value.trim();
   if (!text) return;
 
   if (target === 'manual') {
     const res = await fetch(
       `/api/events/${currentEvent.id}/display/manual`,
-      adminJsonOptions('POST', { text, title: '' })
+      adminJsonOptions('POST', { text, title })
     );
     const data = await res.json();
     if (!data.ok) {
@@ -1368,6 +1508,7 @@ async function sendManualText(target = 'auto') {
       ...(currentEvent.displayState || {}),
       ...(data.displayState || {})
     };
+    currentEvent.displayStatePrevious = data.previousState || currentEvent.displayStatePrevious || null;
     currentEvent.mode = 'live';
     currentEvent.songHistory = data.songHistory || currentEvent.songHistory || [];
     refreshDisplayControls();
@@ -1381,8 +1522,35 @@ async function sendManualText(target = 'auto') {
     setStatus('Text sent to live translation flow.');
   }
 
+  if ($('manualTitle')) $('manualTitle').value = '';
   $('manualText').value = '';
   lastManualEnterAt = 0;
+}
+
+async function savePinnedTextToLibrary() {
+  const title = $('manualTitle')?.value.trim() || '';
+  const text = $('manualText')?.value.trim() || '';
+  if (!title || !text) {
+    alert('Add both a title and text before saving.');
+    return;
+  }
+  try {
+    const res = await fetch('/api/pinned-text-library', globalJsonOptions('POST', { title, text }));
+    const data = await res.json();
+    if (!data.ok) {
+      alert(data.error || 'Could not save pinned text.');
+      return;
+    }
+    currentPinnedTextLibrary = data.pinnedTextLibrary || [];
+    renderPinnedTextLibrary(currentPinnedTextLibrary);
+    $('manualTitle').value = '';
+    $('manualText').value = '';
+    lastManualEnterAt = 0;
+    setStatus('Saved to pinned text library.');
+  } catch (err) {
+    console.error(err);
+    alert('Could not save pinned text.');
+  }
 }
 
 function getManualHistoryItemById(itemId) {
@@ -1426,6 +1594,7 @@ socket.on('joined_event', ({ event, role }) => {
   renderSongHistory(event.songHistory || []);
   loadSongLibrary();
   loadGlobalSongLibrary();
+  loadPinnedTextLibrary();
   loadDisplayPresets();
   populateEventLinks();
   closeInlineEditors();
@@ -1438,11 +1607,19 @@ socket.on('transcript_entry', (entry) => {
   currentEvent.transcripts = currentEvent.transcripts || [];
   if (!getEntryById(entry.id)) currentEvent.transcripts.push(entry);
   renderEntry(entry);
+  renderDisplayAuditSummary();
   $('partialTranscript').textContent = 'Waiting for full sentence...';
 });
 
-socket.on('transcript_updated', updateEntry);
-socket.on('transcript_source_updated', (payload) => { updateSourceEntry(payload); $('partialTranscript').textContent = 'Waiting for full sentence...'; });
+socket.on('transcript_updated', (payload) => {
+  updateEntry(payload);
+  renderDisplayAuditSummary();
+});
+socket.on('transcript_source_updated', (payload) => {
+  updateSourceEntry(payload);
+  renderDisplayAuditSummary();
+  $('partialTranscript').textContent = 'Waiting for full sentence...';
+});
 socket.on('audio_state', ({ audioMuted, audioVolume }) => {
   currentMuted = audioMuted;
   currentVolume = audioVolume;
@@ -1469,6 +1646,7 @@ socket.on('song_state', (songState) => {
   currentEvent.songState = songState;
   currentEvent.mode = 'song';
   renderSongState(songState);
+  renderDisplayAuditSummary();
 });
 socket.on('song_clear', () => {
   if (!currentEvent) return;
@@ -1476,8 +1654,9 @@ socket.on('song_clear', () => {
   currentEvent.mode = 'live';
   renderSongState(currentEvent.songState);
   renderActiveEventBadge(currentEvent);
+  renderDisplayAuditSummary();
 });
-socket.on('display_mode_changed', ({ mode, blackScreen, theme, language, backgroundPreset, customBackground, showClock, clockPosition, textSize, screenStyle, presets }) => {
+socket.on('display_mode_changed', ({ mode, blackScreen, theme, language, backgroundPreset, customBackground, showClock, clockPosition, textSize, screenStyle, sceneLabel, previousState, presets }) => {
   if (!currentEvent) return;
   currentEvent.displayState = currentEvent.displayState || {};
   currentEvent.displayState.mode = mode;
@@ -1490,6 +1669,8 @@ socket.on('display_mode_changed', ({ mode, blackScreen, theme, language, backgro
   currentEvent.displayState.clockPosition = clockPosition || currentEvent.displayState.clockPosition || 'top-right';
   currentEvent.displayState.textSize = textSize || currentEvent.displayState.textSize || 'large';
   currentEvent.displayState.screenStyle = screenStyle || currentEvent.displayState.screenStyle || 'focus';
+  currentEvent.displayState.sceneLabel = sceneLabel || '';
+  currentEvent.displayStatePrevious = previousState || null;
   if (Array.isArray(presets)) {
     currentEvent.displayPresets = presets;
     currentDisplayPresets = presets;
@@ -1504,7 +1685,7 @@ socket.on('display_theme_changed', ({ theme }) => {
   currentEvent.displayState.theme = theme || 'dark';
   refreshDisplayControls();
 });
-socket.on('display_manual_update', ({ mode, blackScreen, theme, language, backgroundPreset, customBackground, showClock, clockPosition, textSize, screenStyle, manualSource, manualTranslations, updatedAt, presets }) => {
+socket.on('display_manual_update', ({ mode, blackScreen, theme, language, backgroundPreset, customBackground, showClock, clockPosition, textSize, screenStyle, sceneLabel, manualSource, manualTranslations, updatedAt, previousState, presets }) => {
   if (!currentEvent) return;
   currentEvent.displayState = currentEvent.displayState || {};
   currentEvent.displayState.mode = mode || 'manual';
@@ -1517,9 +1698,11 @@ socket.on('display_manual_update', ({ mode, blackScreen, theme, language, backgr
   currentEvent.displayState.clockPosition = clockPosition || currentEvent.displayState.clockPosition || 'top-right';
   currentEvent.displayState.textSize = textSize || currentEvent.displayState.textSize || 'large';
   currentEvent.displayState.screenStyle = screenStyle || currentEvent.displayState.screenStyle || 'focus';
+  currentEvent.displayState.sceneLabel = sceneLabel || '';
   currentEvent.displayState.manualSource = manualSource || '';
   currentEvent.displayState.manualTranslations = manualTranslations || {};
   currentEvent.displayState.updatedAt = updatedAt || currentEvent.displayState.updatedAt || null;
+  currentEvent.displayStatePrevious = previousState || null;
   if (Array.isArray(presets)) {
     currentEvent.displayPresets = presets;
     currentDisplayPresets = presets;
@@ -1546,6 +1729,7 @@ document.querySelectorAll('.nav-btn').forEach((btn) => btn.addEventListener('cli
 $('createEventBtn').addEventListener('click', createEvent);
 $('sendManualLiveBtn').addEventListener('click', () => sendManualText('auto'));
 $('sendManualDisplayBtn').addEventListener('click', () => sendManualText('manual'));
+$('saveManualLibraryBtn').addEventListener('click', savePinnedTextToLibrary);
 $('speed').addEventListener('change', syncSpeedToEvent);
 $('openTranscriptTabBtn').addEventListener('click', () => switchTab('transcript'));
 $('manualText').addEventListener('keydown', (e) => {
@@ -1622,6 +1806,7 @@ $('sendSongBtn').addEventListener('click', sendSongToLive);
 $('songPrevBtn').addEventListener('click', goToPrevSongBlock);
 $('songNextBtn').addEventListener('click', goToNextSongBlock);
 $('blankMainScreenBtn').addEventListener('click', blankMainScreen);
+$('displayRestoreBtn').addEventListener('click', restoreLastDisplayState);
 $('displayAutoBtn').addEventListener('click', () => setDisplayMode('auto'));
 $('displayManualBtn').addEventListener('click', () => setDisplayMode('manual'));
 $('displaySongBtn').addEventListener('click', () => setDisplayMode('song'));
@@ -1634,6 +1819,18 @@ $('openParticipantPreviewBtn').addEventListener('click', openParticipantPreviewW
 $('openBothPreviewsBtn').addEventListener('click', openBothPreviewWindows);
 $('globalSongLibrarySearch').addEventListener('input', () => renderGlobalSongLibrary(currentGlobalSongLibrary));
 $('globalSongLibrarySort').addEventListener('change', () => renderGlobalSongLibrary(currentGlobalSongLibrary));
+$('manualLibrarySearch').addEventListener('input', () => renderPinnedTextLibrary(currentPinnedTextLibrary));
+$('manualLibrarySort').addEventListener('change', () => renderPinnedTextLibrary(currentPinnedTextLibrary));
+$('displayLanguageQuickButtons')?.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-quick-language]');
+  if (!btn) return;
+  await setDisplayLanguage(btn.getAttribute('data-quick-language'));
+});
+$('displayShortcutButtons')?.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-display-shortcut]');
+  if (!btn) return;
+  await applyDisplayShortcut(btn.getAttribute('data-display-shortcut'));
+});
 $('songBlocksList').addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-song-block-index]');
   if (!btn) return;
@@ -1711,13 +1908,55 @@ $('manualHistoryList')?.addEventListener('click', async (e) => {
   const item = getManualHistoryItemById(btn.getAttribute('data-manual-history-id'));
   if (!item) return;
   if (btn.getAttribute('data-manual-history-action') === 'load') {
+    if ($('manualTitle')) $('manualTitle').value = item.title || '';
     $('manualText').value = item.source || '';
     switchTab('manual');
     setStatus('Pinned text loaded into quick push editor.');
     return;
   }
+  if ($('manualTitle')) $('manualTitle').value = item.title || '';
   $('manualText').value = item.source || '';
   await sendManualText('manual');
+});
+$('manualLibraryList')?.addEventListener('click', async (e) => {
+  const summary = e.target.closest('.library-card-summary');
+  if (summary) return;
+  const btn = e.target.closest('button[data-manual-library-action]');
+  if (!btn) return;
+  const action = btn.getAttribute('data-manual-library-action');
+  const itemId = btn.getAttribute('data-manual-library-id');
+  const item = currentPinnedTextLibrary.find((entry) => entry.id === itemId);
+  if (!item) return;
+  if (action === 'load') {
+    if ($('manualTitle')) $('manualTitle').value = item.title || '';
+    $('manualText').value = item.text || '';
+    switchTab('manual');
+    setStatus('Pinned text loaded into editor.');
+    return;
+  }
+  if (action === 'send') {
+    if ($('manualTitle')) $('manualTitle').value = item.title || '';
+    $('manualText').value = item.text || '';
+    await sendManualText('manual');
+    return;
+  }
+  if (action === 'delete') {
+    if (!confirm('Delete this pinned text from library?')) return;
+    try {
+      const res = await fetch(`/api/pinned-text-library/${itemId}`, globalJsonOptions('DELETE'));
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.error || 'Could not delete pinned text.');
+        return;
+      }
+      currentPinnedTextLibrary = data.pinnedTextLibrary || [];
+      renderPinnedTextLibrary(currentPinnedTextLibrary);
+      setStatus('Deleted from pinned text library.');
+    } catch (err) {
+      console.error(err);
+      alert('Could not delete pinned text.');
+    }
+  }
 });
 $('openTranslateScreenBtn').addEventListener('click', () => { const url = $('translateLink').value || '/translate'; if (url) window.open(url, '_blank'); });
 $('eventList').addEventListener('click', async (e) => {
@@ -1778,6 +2017,7 @@ window.addEventListener('load', async () => {
   updateMonitorGain();
   setOnAirState(false);
   resetParticipantStats();
+  await loadPinnedTextLibrary();
   await loadGlobalSongLibrary();
   await refreshEventList();
   try {

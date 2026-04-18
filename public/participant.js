@@ -54,7 +54,9 @@ const state = {
   localAudioEnabled: true,
   serverAudioMuted: false,
   languageInitialized: false,
-  participantId: getOrCreateParticipantId()
+  participantId: getOrCreateParticipantId(),
+  compactMode: localStorage.getItem('sanctuary_voice_participant_compact') === '1',
+  focusMode: localStorage.getItem('sanctuary_voice_participant_focus') === '1'
 };
 
 function setWakeLockBadge(active) {
@@ -98,6 +100,25 @@ function setStatus(text) {
 
 function setParticipantUpdating(show) {
   $('participantUpdatingBadge').style.display = show ? 'block' : 'none';
+}
+
+function applyParticipantViewMode() {
+  const shell = document.querySelector('.participant-shell');
+  if (!shell) return;
+  shell.classList.toggle('participant-compact', !!state.compactMode);
+  shell.classList.toggle('participant-focus', !!state.focusMode);
+  const compactBtn = $('participantCompactBtn');
+  const focusBtn = $('participantFocusBtn');
+  if (compactBtn) {
+    compactBtn.classList.toggle('btn-primary', !!state.compactMode);
+    compactBtn.classList.toggle('btn-dark', !state.compactMode);
+    compactBtn.textContent = state.compactMode ? 'Compact on' : 'Compact';
+  }
+  if (focusBtn) {
+    focusBtn.classList.toggle('btn-primary', !!state.focusMode);
+    focusBtn.classList.toggle('btn-dark', !state.focusMode);
+    focusBtn.textContent = state.focusMode ? 'Focus on' : 'Focus mode';
+  }
 }
 
 function sortEntries(entries = []) {
@@ -378,6 +399,18 @@ $('pauseAudioBtn').addEventListener('click', () => {
   setStatus('Local audio paused.');
 });
 
+$('participantCompactBtn').addEventListener('click', () => {
+  state.compactMode = !state.compactMode;
+  localStorage.setItem('sanctuary_voice_participant_compact', state.compactMode ? '1' : '0');
+  applyParticipantViewMode();
+});
+
+$('participantFocusBtn').addEventListener('click', () => {
+  state.focusMode = !state.focusMode;
+  localStorage.setItem('sanctuary_voice_participant_focus', state.focusMode ? '1' : '0');
+  applyParticipantViewMode();
+});
+
 window.addEventListener('load', async () => {
   try {
     const res = await fetch('/api/languages');
@@ -391,6 +424,7 @@ window.addEventListener('load', async () => {
   } catch (_) {}
 
   await enableWakeLock();
+  applyParticipantViewMode();
 });
 
 document.addEventListener('visibilitychange', async () => {

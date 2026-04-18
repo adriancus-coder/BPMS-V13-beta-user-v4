@@ -273,11 +273,51 @@
                 <h2>Main Screen Settings</h2>
                 <div class="muted">Theme, readability, preview and blank screen</div>
               </div>
+              <div class="info-card accent-card main-screen-audit-card">
+                <div class="section-head admin-subsection-head">
+                  <h2>Screen Status</h2>
+                  <div class="muted">See exactly what is live before you change anything.</div>
+                </div>
+                <div class="display-audit-grid">
+                  <div><span class="label">Scene</span><strong id="displayAuditScene" class="display-audit-value">Live follow</strong></div>
+                  <div><span class="label">Language</span><strong id="displayAuditLanguage" class="display-audit-value">-</strong></div>
+                  <div><span class="label">Theme</span><strong id="displayAuditTheme" class="display-audit-value">-</strong></div>
+                  <div><span class="label">Readability</span><strong id="displayAuditText" class="display-audit-value">-</strong></div>
+                  <div><span class="label">Source</span><strong id="displayAuditSource" class="display-audit-value">-</strong></div>
+                  <div><span class="label">Updated</span><strong id="displayAuditUpdated" class="display-audit-value">-</strong></div>
+                </div>
+                <div id="displayAuditPreview" class="muted display-audit-preview">Waiting for live content.</div>
+              </div>
+              <div class="button-row compact-row display-restore-row">
+                <button id="displayRestoreBtn" class="btn btn-dark" type="button">Undo last screen change</button>
+              </div>
               <div class="button-row compact-row">
                 <button id="displayAutoBtn" class="btn btn-dark" type="button">Live follow</button>
                 <button id="displayManualBtn" class="btn btn-primary" type="button">Pinned text</button>
                 <button id="displaySongBtn" class="btn btn-dark" type="button">Song</button>
                 <button id="blankMainScreenBtn" class="btn btn-danger" type="button">Black screen</button>
+              </div>
+              <div class="info-card soft-card">
+                <div class="section-head admin-subsection-head">
+                  <h2>Quick Language Switch</h2>
+                  <div class="muted">Change projector language in one click.</div>
+                </div>
+                <div id="displayLanguageQuickButtons" class="quick-language-row">
+                  <div class="muted">Open an event to see available languages.</div>
+                </div>
+              </div>
+              <div class="info-card soft-card">
+                <div class="section-head admin-subsection-head">
+                  <h2>Service Flow Shortcuts</h2>
+                  <div class="muted">Fast setups for welcome, worship, sermon, prayer, and closing.</div>
+                </div>
+                <div id="displayShortcutButtons" class="service-shortcuts-grid">
+                  <button class="btn btn-dark" data-display-shortcut="welcome" type="button">Welcome</button>
+                  <button class="btn btn-dark" data-display-shortcut="worship" type="button">Worship</button>
+                  <button class="btn btn-dark" data-display-shortcut="sermon" type="button">Sermon</button>
+                  <button class="btn btn-dark" data-display-shortcut="prayer" type="button">Prayer</button>
+                  <button class="btn btn-dark" data-display-shortcut="closing" type="button">Closing</button>
+                </div>
               </div>
               <div class="split-2">
                 <div>
@@ -447,25 +487,46 @@
       </section>
 
       <section id="tab-manual" class="tab-panel">
-        <div class="panel glass-panel section-stack">
-          <div class="section-head">
-            <h2>Quick Text Push</h2>
-            <div class="live-chip">Direct publish</div>
-          </div>
-          <textarea id="manualText" placeholder="Write text here"></textarea>
-          <div class="muted">Press Enter twice quickly to send.</div>
-          <div class="button-row compact-row">
-            <button id="sendManualLiveBtn" class="btn btn-dark" type="button">Send to live</button>
-            <button id="sendManualDisplayBtn" class="btn btn-primary" type="button">Send to pinned text</button>
-          </div>
-          <div class="info-card soft-card">
-            <div class="section-head admin-subsection-head">
-              <h2>Pinned Text History</h2>
-              <div class="muted">Resend a recent pinned text quickly</div>
+        <div class="cards-grid two">
+          <div class="panel glass-panel section-stack">
+            <div class="section-head">
+              <h2>Quick Text Push</h2>
+              <div class="live-chip">Direct publish</div>
             </div>
-            <div id="manualHistoryList" class="history-list">
-              <div class="muted">No pinned texts yet.</div>
+            <label>Title</label>
+            <input id="manualTitle" type="text" placeholder="Welcome">
+            <textarea id="manualText" placeholder="Write text here"></textarea>
+            <div class="muted">Press Enter twice quickly to send.</div>
+            <div class="button-row compact-row">
+              <button id="saveManualLibraryBtn" class="btn btn-dark" type="button">Save to library</button>
+              <button id="sendManualLiveBtn" class="btn btn-dark" type="button">Send to live</button>
+              <button id="sendManualDisplayBtn" class="btn btn-primary" type="button">Send to pinned text</button>
             </div>
+            <div class="info-card soft-card">
+              <div class="section-head admin-subsection-head">
+                <h2>Pinned Text History</h2>
+                <div class="muted">Resend a recent pinned text quickly</div>
+              </div>
+              <div id="manualHistoryList" class="history-list">
+                <div class="muted">No pinned texts yet.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel glass-panel section-stack">
+            <div class="section-head">
+              <h2>Pinned Text Library</h2>
+              <div class="muted">Reusable text for welcome, prayer, announcements, and verses</div>
+            </div>
+            <div class="button-row compact-row">
+              <input id="manualLibrarySearch" type="text" placeholder="Search pinned text library">
+              <select id="manualLibrarySort">
+                <option value="az" selected>Title A-Z</option>
+                <option value="za">Title Z-A</option>
+                <option value="recent">Recent first</option>
+              </select>
+            </div>
+            <div id="manualLibraryList" class="event-list"></div>
           </div>
         </div>
       </section>
