@@ -129,6 +129,7 @@ function defaultDisplayState() {
     screenStyle: 'focus',
     sceneLabel: '',
     manualSource: '',
+    manualSourceLang: 'ro',
     manualTranslations: {},
     updatedAt: null
   };
@@ -191,20 +192,40 @@ function cloneDisplaySnapshot(event) {
     screenStyle: event.displayState.screenStyle,
     sceneLabel: typeof event.displayState.sceneLabel === 'string' ? event.displayState.sceneLabel : '',
     manualSource: event.displayState.manualSource || '',
+    manualSourceLang: event.displayState.manualSourceLang || event.sourceLang || 'ro',
     manualTranslations: { ...(event.displayState.manualTranslations || {}) },
     updatedAt: event.displayState.updatedAt || null
   };
 }
 
+function getDisplayLanguageChoices(event, modeOverride = '') {
+  const mode = String(modeOverride || event?.displayState?.mode || 'auto').trim();
+  const base = Array.isArray(event?.targetLangs) ? [...event.targetLangs] : [];
+  if (mode === 'song') {
+    const sourceLang = String(event?.songState?.sourceLang || event?.sourceLang || '').trim();
+    if (sourceLang && !base.includes(sourceLang)) base.push(sourceLang);
+  }
+  if (mode === 'manual') {
+    const sourceLang = String(event?.displayState?.manualSourceLang || event?.sourceLang || '').trim();
+    if (sourceLang && !base.includes(sourceLang)) base.push(sourceLang);
+  }
+  return base.filter(Boolean);
+}
+
 function applyDisplaySnapshot(event, snapshot, updatedAt = new Date().toISOString()) {
   ensureEventUiState(event);
   const safe = snapshot || defaultDisplayState();
+  const allowedDisplayLanguages = getDisplayLanguageChoices(event, safe.mode);
+  const manualSourceLang = typeof safe.manualSourceLang === 'string' ? safe.manualSourceLang : (event.sourceLang || 'ro');
+  if (safe.mode === 'manual' && manualSourceLang && !allowedDisplayLanguages.includes(manualSourceLang)) {
+    allowedDisplayLanguages.push(manualSourceLang);
+  }
   event.displayState = {
     ...event.displayState,
     mode: ['auto', 'manual', 'song'].includes(safe.mode) ? safe.mode : 'auto',
     blackScreen: !!safe.blackScreen,
     theme: ['dark', 'light'].includes(safe.theme) ? safe.theme : 'dark',
-    language: event.targetLangs.includes(safe.language) ? safe.language : (event.targetLangs[0] || 'no'),
+    language: allowedDisplayLanguages.includes(safe.language) ? safe.language : (allowedDisplayLanguages[0] || event.targetLangs[0] || 'no'),
     backgroundPreset: ['none', 'warm', 'sanctuary', 'soft-light'].includes(safe.backgroundPreset) ? safe.backgroundPreset : 'none',
     customBackground: typeof safe.customBackground === 'string' ? safe.customBackground : '',
     showClock: !!safe.showClock,
@@ -213,6 +234,7 @@ function applyDisplaySnapshot(event, snapshot, updatedAt = new Date().toISOStrin
     screenStyle: ['focus', 'wide'].includes(safe.screenStyle) ? safe.screenStyle : 'focus',
     sceneLabel: typeof safe.sceneLabel === 'string' ? safe.sceneLabel : '',
     manualSource: typeof safe.manualSource === 'string' ? safe.manualSource : '',
+    manualSourceLang,
     manualTranslations: typeof safe.manualTranslations === 'object' && safe.manualTranslations ? { ...safe.manualTranslations } : {},
     updatedAt
   };
@@ -235,10 +257,16 @@ function ensureEventUiState(event) {
     event.targetLangs = ['no', 'en'];
   }
   if (!event.displayState.language || !event.targetLangs.includes(event.displayState.language)) {
-    event.displayState.language = event.targetLangs[0] || 'no';
+    const allowedDisplayLanguages = getDisplayLanguageChoices(event);
+    event.displayState.language = allowedDisplayLanguages.includes(event.displayState.language)
+      ? event.displayState.language
+      : (allowedDisplayLanguages[0] || event.targetLangs[0] || 'no');
   }
   if (typeof event.displayState.customBackground !== 'string') {
     event.displayState.customBackground = '';
+  }
+  if (typeof event.displayState.manualSourceLang !== 'string' || !event.displayState.manualSourceLang.trim()) {
+    event.displayState.manualSourceLang = event.sourceLang || 'ro';
   }
   if (!['none', 'warm', 'sanctuary', 'soft-light'].includes(event.displayState.backgroundPreset)) {
     event.displayState.backgroundPreset = 'none';
@@ -643,6 +671,7 @@ function buildDisplayPayload(event) {
     screenStyle: event.displayState.screenStyle,
     sceneLabel: event.displayState.sceneLabel,
     manualSource: event.displayState.manualSource,
+    manualSourceLang: event.displayState.manualSourceLang || event.sourceLang || 'ro',
     manualTranslations: event.displayState.manualTranslations,
     updatedAt: event.displayState.updatedAt,
     previousState: event.displayStatePrevious || null,
@@ -909,6 +938,45 @@ function applyReplacementMap(text, map) {
   return out;
 }
 
+const translationCache = new Map();
+const TRANSLATION_CACHE_LIMIT = 2000;
+
+function getGlossaryCacheKey(glossary = {}) {
+  return Object.entries(glossary || {})
+    .filter(([source, target]) => source && target)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([source, target]) => `${source}=>${target}`)
+    .join('||');
+}
+
+function buildTranslationCacheKey({ text, langCode, sourceLang, speed, glossary }) {
+  return [
+    String(sourceLang || ''),
+    String(langCode || ''),
+    String(speed || ''),
+    getGlossaryCacheKey(glossary),
+    sanitizeStructuredText(text || '')
+  ].join('::');
+}
+
+function readTranslationCache(key) {
+  if (!translationCache.has(key)) return null;
+  const value = translationCache.get(key);
+  translationCache.delete(key);
+  translationCache.set(key, value);
+  return value;
+}
+
+function writeTranslationCache(key, value) {
+  if (!key || !value) return;
+  if (translationCache.has(key)) translationCache.delete(key);
+  translationCache.set(key, value);
+  while (translationCache.size > TRANSLATION_CACHE_LIMIT) {
+    const firstKey = translationCache.keys().next().value;
+    translationCache.delete(firstKey);
+  }
+}
+
 function getGlossaryForLang(langCode, event) {
   const langMemory = {};
   for (const [key, value] of Object.entries(db.globalMemory || {})) {
@@ -960,7 +1028,7 @@ function buildPrompt(sourceLangName, targetLangName, speed, glossary) {
 }
 
 
-async function buildTranslationsForAllTargets(text, event) {
+async function buildTranslationsForAllTargets(text, event, sourceLangOverride = '') {
   const clean = sanitizeStructuredText(text);
   if (!clean) return {};
 
@@ -972,7 +1040,7 @@ async function buildTranslationsForAllTargets(text, event) {
   const translationPairs = await Promise.all(
     (event.targetLangs || []).map(async (lang) => {
       if (!blocks.length) return [lang, ''];
-      const translatedBlocks = await Promise.all(blocks.map((block) => translateText(block, lang, event)));
+      const translatedBlocks = await Promise.all(blocks.map((block) => translateText(block, lang, event, sourceLangOverride)));
       return [lang, translatedBlocks.join('\n\n').trim()];
     })
   );
@@ -1000,6 +1068,15 @@ async function translateText(text, langCode, event, sourceLangOverride = '') {
   const sourceLang = String(sourceLangOverride || event.sourceLang || 'ro').trim() || 'ro';
   if (!cleanText) return '';
   if (langCode === sourceLang) return cleanText;
+  const cacheKey = buildTranslationCacheKey({
+    text: cleanText,
+    langCode,
+    sourceLang,
+    speed: event.speed,
+    glossary
+  });
+  const cachedTranslation = readTranslationCache(cacheKey);
+  if (cachedTranslation) return cachedTranslation;
   if (!client) return `[${langCode}] ${applyGlossary(cleanText, glossary)}`;
   try {
     const response = await client.responses.create({
@@ -1010,11 +1087,18 @@ async function translateText(text, langCode, event, sourceLangOverride = '') {
       ]
     });
     const translated = sanitizeStructuredText(response.output_text || '');
-    if (translated) return translated;
-    return applyGlossary(cleanText, glossary);
+    if (translated) {
+      writeTranslationCache(cacheKey, translated);
+      return translated;
+    }
+    const fallback = applyGlossary(cleanText, glossary);
+    writeTranslationCache(cacheKey, fallback);
+    return fallback;
   } catch (err) {
     console.error(`translate error ${langCode}:`, err?.message || err);
-    return `[${langCode}] ${applyGlossary(cleanText, glossary)}`;
+    const fallback = `[${langCode}] ${applyGlossary(cleanText, glossary)}`;
+    writeTranslationCache(cacheKey, fallback);
+    return fallback;
   }
 }
 
@@ -1116,7 +1200,7 @@ async function processText(event, cleanText, { force = false } = {}) {
     lastEntry.participantDirty = false;
     saveDb();
 
-    io.to(`event:${event.id}:admins`).emit('transcript_source_updated', {
+    io.to(`event:${event.id}`).emit('transcript_source_updated', {
       entryId: lastEntry.id,
       sourceLang: lastEntry.sourceLang,
       original: lastEntry.original,
@@ -1125,12 +1209,6 @@ async function processText(event, cleanText, { force = false } = {}) {
     if (event.displayState?.mode === 'auto') {
       io.to(`event:${event.id}`).emit('display_live_entry', lastEntry);
     }
-    io.to(`event:${event.id}`).emit('transcript_source_updated', {
-      entryId: lastEntry.id,
-      sourceLang: lastEntry.sourceLang,
-      original: lastEntry.original,
-      translations: lastEntry.translations
-    });
 
     let lastCreatedEntry = lastEntry;
     for (const extraChunk of chunks) {
@@ -1739,7 +1817,8 @@ app.post('/api/events/:id/display/language', (req, res) => {
   if (!requireEventPermission(req, res, 'main_screen')) return;
   ensureEventUiState(event);
   const language = String(req.body.language || '').trim();
-  if (!event.targetLangs.includes(language)) {
+  const allowedDisplayLanguages = getDisplayLanguageChoices(event);
+  if (!allowedDisplayLanguages.includes(language)) {
     return res.status(400).json({ ok: false, error: 'Limba invalida pentru ecran.' });
   }
   rememberDisplayState(event);
@@ -1914,7 +1993,10 @@ app.post('/api/events/:id/display-presets/:presetId/apply', (req, res) => {
   event.displayState.mode = preset.mode;
   event.displayState.blackScreen = false;
   event.displayState.theme = preset.theme;
-  event.displayState.language = event.targetLangs.includes(preset.language) ? preset.language : (event.targetLangs[0] || 'no');
+  {
+    const allowedDisplayLanguages = getDisplayLanguageChoices(event, preset.mode);
+    event.displayState.language = allowedDisplayLanguages.includes(preset.language) ? preset.language : (allowedDisplayLanguages[0] || event.targetLangs[0] || 'no');
+  }
   event.displayState.backgroundPreset = preset.backgroundPreset;
   event.displayState.customBackground = preset.customBackground;
   event.displayState.showClock = !!preset.showClock;
@@ -1968,17 +2050,18 @@ app.post('/api/events/:id/display/manual', async (req, res) => {
 
   const text = sanitizeStructuredText(req.body.text || '');
   const title = String(req.body.title || '').trim();
+  const sourceLang = String(req.body.sourceLang || event.sourceLang || 'ro').trim() || 'ro';
 
   if (!text) {
     return res.status(400).json({ ok: false, error: 'Text lipsă.' });
   }
 
   try {
-    const translations = await buildTranslationsForAllTargets(text, event);
+    const translations = await buildTranslationsForAllTargets(text, event, sourceLang);
 
     const entry = {
       id: randomUUID(),
-      sourceLang: event.sourceLang,
+      sourceLang,
       original: text,
       translations,
       createdAt: new Date().toISOString(),
@@ -1999,6 +2082,7 @@ app.post('/api/events/:id/display/manual', async (req, res) => {
       blackScreen: false,
       sceneLabel: '',
       manualSource: text,
+      manualSourceLang: sourceLang,
       manualTranslations: translations,
       updatedAt: new Date().toISOString()
     };
@@ -2089,10 +2173,11 @@ app.get('/api/pinned-text-library', (req, res) => {
 app.post('/api/pinned-text-library', (req, res) => {
   const title = String(req.body.title || '').trim();
   const text = sanitizeStructuredText(req.body.text || '');
+  const sourceLang = String(req.body.sourceLang || 'ro').trim() || 'ro';
   if (!title || !text) {
     return res.status(400).json({ ok: false, error: 'Titlu sau text lipsa.' });
   }
-  upsertLibraryItem(db.pinnedTextLibrary, { title, text, labels: [] }, 300);
+  upsertLibraryItem(db.pinnedTextLibrary, { title, text, labels: [], sourceLang }, 300);
   saveDb();
   res.json({ ok: true, pinnedTextLibrary: db.pinnedTextLibrary });
 });
