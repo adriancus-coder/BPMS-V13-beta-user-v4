@@ -736,6 +736,24 @@ function requireEventRole(req, res, event, allowedRoles = ['admin']) {
   return role;
 }
 
+function buildBaseUrl(req) {
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
+  const host = req.get('host');
+  return `${proto}://${host}`;
+}
+
+function ensureEventAccessLinks(event, baseUrl) {
+  if (!event.screenOperatorCode) {
+    event.screenOperatorCode = `SV-SCREEN-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+  }
+  if (baseUrl) {
+    event.participantLink = `${baseUrl}/participant?event=${event.id}`;
+    event.translateLink = `${baseUrl}/translate?event=${event.id}`;
+    event.songLink = `${baseUrl}/song?event=${event.id}`;
+    event.remoteControlLink = `${baseUrl}/remote?event=${event.id}&code=${encodeURIComponent(event.screenOperatorCode)}`;
+  }
+}
+
 async function createEvent({ name, speed, sourceLang, targetLangs, baseUrl, scheduledAt }) {
   const id = randomUUID();
   const adminCode = `SV-ADMIN-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
@@ -976,11 +994,13 @@ async function publishNewChunk(event, chunk) {
   event.transcripts.push(entry);
   if (event.transcripts.length > 300) event.transcripts = event.transcripts.slice(-300);
   ensureEventUiState(event);
+  recordTranscriptCreated(event);
   saveDb();
   io.to(`event:${event.id}`).emit('transcript_entry', entry);
   if (event.displayState?.mode === 'auto') {
     io.to(`event:${event.id}`).emit('display_live_entry', entry);
   }
+  emitUsageStats(event.id);
   return entry;
 }
 
@@ -1297,6 +1317,8 @@ app.get('/api/events/active', (req, res) => {
   const activeEventId = db.activeEventId;
   const event = activeEventId ? db.events[activeEventId] : null;
   if (!event) return res.status(404).json({ ok: false, error: 'Nu există eveniment activ.' });
+  ensureEventAccessLinks(event, buildBaseUrl(req));
+  saveDb();
   res.json({ ok: true, event: normalizeEvent(event), languageNames: LANGUAGE_NAMES_RO });
 });
 
@@ -1310,6 +1332,8 @@ app.get('/api/events', (req, res) => {
 app.get('/api/events/:id', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
+  ensureEventAccessLinks(event, buildBaseUrl(req));
+  saveDb();
   res.json({ ok: true, event: normalizeEvent(event), languageNames: LANGUAGE_NAMES_RO });
 });
 
@@ -1440,11 +1464,13 @@ app.post('/api/events/:id/song/load', async (req, res) => {
 app.post('/api/events/:id/song/show/:index', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
-  if (!requireEventAdmin(req, res, event)) return;
+  if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
   const index = Number(req.params.index);
   if (!setSongIndex(event, index)) return res.status(400).json({ ok: false, error: 'Index invalid.' });
+  recordScreenAction(event, 'song');
   saveDb();
   io.to(`event:${event.id}`).emit('song_state', event.songState);
+  emitUsageStats(event.id);
   res.json({ ok: true, songState: event.songState });
 });
 
@@ -1464,18 +1490,20 @@ app.post('/api/events/:id/song/labels', (req, res) => {
 app.post('/api/events/:id/song/next', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
-  if (!requireEventAdmin(req, res, event)) return;
+  if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
   const nextIndex = Number(event.songState?.currentIndex ?? -1) + 1;
   if (!setSongIndex(event, nextIndex)) return res.status(400).json({ ok: false, error: 'Nu mai există bloc următor.' });
+  recordScreenAction(event, 'song');
   saveDb();
   io.to(`event:${event.id}`).emit('song_state', event.songState);
+  emitUsageStats(event.id);
   res.json({ ok: true, songState: event.songState });
 });
 
 app.post('/api/events/:id/song/prev', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
-  if (!requireEventAdmin(req, res, event)) return;
+  if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
   const prevIndex = Number(event.songState?.currentIndex ?? 0) - 1;
   if (!setSongIndex(event, prevIndex)) return res.status(400).json({ ok: false, error: 'Nu mai există bloc anterior.' });
   saveDb();
@@ -1486,7 +1514,7 @@ app.post('/api/events/:id/song/prev', (req, res) => {
 app.post('/api/events/:id/song/clear', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
-  if (!requireEventAdmin(req, res, event)) return;
+  if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
   rememberDisplayState(event);
   event.songState = defaultSongState();
   event.mode = 'live';
@@ -1506,7 +1534,7 @@ app.post('/api/events/:id/song/clear', (req, res) => {
 app.post('/api/events/:id/display/mode', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
-  if (!requireEventAdmin(req, res, event)) return;
+  if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
 
   ensureEventUiState(event);
 
@@ -1524,9 +1552,11 @@ app.post('/api/events/:id/display/mode', (req, res) => {
   event.displayState.blackScreen = false;
   event.displayState.sceneLabel = '';
   event.displayState.updatedAt = new Date().toISOString();
+  recordScreenAction(event, 'display');
   saveDb();
 
   io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
+  emitUsageStats(event.id);
 
   res.json({ ok: true, displayState: event.displayState, previousState: event.displayStatePrevious || null, event: normalizeEvent(event) });
 });
@@ -1534,7 +1564,7 @@ app.post('/api/events/:id/display/mode', (req, res) => {
 app.post('/api/events/:id/display/theme', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
-  if (!requireEventAdmin(req, res, event)) return;
+  if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
 
   ensureEventUiState(event);
   const theme = String(req.body.theme || 'dark').trim();
@@ -1546,6 +1576,7 @@ app.post('/api/events/:id/display/theme', (req, res) => {
   event.displayState.theme = theme;
   event.displayState.sceneLabel = '';
   event.displayState.updatedAt = new Date().toISOString();
+  recordScreenAction(event, 'display');
   saveDb();
 
   io.to(`event:${event.id}`).emit('display_theme_changed', {
@@ -1553,14 +1584,15 @@ app.post('/api/events/:id/display/theme', (req, res) => {
     updatedAt: event.displayState.updatedAt
   });
   io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
+  emitUsageStats(event.id);
 
-  res.json({ ok: true, displayState: event.displayState });
+  res.json({ ok: true, displayState: event.displayState, previousState: event.displayStatePrevious || null });
 });
 
 app.post('/api/events/:id/display/language', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
-  if (!requireEventAdmin(req, res, event)) return;
+  if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
   ensureEventUiState(event);
   const language = String(req.body.language || '').trim();
   if (!event.targetLangs.includes(language)) {
@@ -1570,15 +1602,17 @@ app.post('/api/events/:id/display/language', (req, res) => {
   event.displayState.language = language;
   event.displayState.sceneLabel = '';
   event.displayState.updatedAt = new Date().toISOString();
+  recordScreenAction(event, 'display');
   saveDb();
   io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
+  emitUsageStats(event.id);
   res.json({ ok: true, displayState: event.displayState, previousState: event.displayStatePrevious || null });
 });
 
 app.post('/api/events/:id/display/settings', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
-  if (!requireEventAdmin(req, res, event)) return;
+  if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
   ensureEventUiState(event);
   const backgroundPreset = typeof req.body.backgroundPreset === 'string' ? req.body.backgroundPreset.trim() : event.displayState.backgroundPreset;
   const customBackground = typeof req.body.customBackground === 'string' ? req.body.customBackground.trim() : event.displayState.customBackground;
@@ -1607,15 +1641,17 @@ app.post('/api/events/:id/display/settings', (req, res) => {
   event.displayState.screenStyle = screenStyle;
   event.displayState.sceneLabel = '';
   event.displayState.updatedAt = new Date().toISOString();
+  recordScreenAction(event, 'display');
   saveDb();
   io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
+  emitUsageStats(event.id);
   res.json({ ok: true, displayState: event.displayState, previousState: event.displayStatePrevious || null });
 });
 
 app.post('/api/events/:id/display/restore-last', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
-  if (!requireEventAdmin(req, res, event)) return;
+  if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
   ensureEventUiState(event);
   if (!event.displayStatePrevious) {
     return res.status(400).json({ ok: false, error: 'Nu exista o stare anterioara pentru restore.' });
@@ -1624,15 +1660,17 @@ app.post('/api/events/:id/display/restore-last', (req, res) => {
   const previousSnapshot = event.displayStatePrevious;
   applyDisplaySnapshot(event, previousSnapshot);
   event.displayStatePrevious = currentSnapshot;
+  recordScreenAction(event, 'display');
   saveDb();
   io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
+  emitUsageStats(event.id);
   res.json({ ok: true, displayState: event.displayState, previousState: event.displayStatePrevious || null, event: normalizeEvent(event) });
 });
 
 app.post('/api/events/:id/display/shortcut', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
-  if (!requireEventAdmin(req, res, event)) return;
+  if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
   ensureEventUiState(event);
 
   const shortcutKey = String(req.body.shortcut || '').trim().toLowerCase();
@@ -1664,15 +1702,18 @@ app.post('/api/events/:id/display/shortcut', (req, res) => {
   event.displayState.screenStyle = shortcut.screenStyle;
   event.displayState.sceneLabel = shortcut.label;
   event.displayState.updatedAt = new Date().toISOString();
+  recordScreenAction(event, 'display');
   saveDb();
 
   io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
+  emitUsageStats(event.id);
   res.json({ ok: true, shortcut: shortcut.label, displayState: event.displayState, previousState: event.displayStatePrevious || null, event: normalizeEvent(event) });
 });
 
 app.get('/api/events/:id/display-presets', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
+  if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
   ensureEventUiState(event);
   res.json({ ok: true, presets: event.displayPresets });
 });
@@ -1709,7 +1750,7 @@ app.post('/api/events/:id/display-presets', (req, res) => {
 app.post('/api/events/:id/display-presets/:presetId/apply', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
-  if (!requireEventAdmin(req, res, event)) return;
+  if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
   ensureEventUiState(event);
 
   const preset = event.displayPresets.find((item) => item.id === req.params.presetId);
@@ -1733,8 +1774,10 @@ app.post('/api/events/:id/display-presets/:presetId/apply', (req, res) => {
   event.displayState.screenStyle = preset.screenStyle;
   event.displayState.sceneLabel = preset.name;
   event.displayState.updatedAt = new Date().toISOString();
+  recordScreenAction(event, 'display');
   saveDb();
   io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
+  emitUsageStats(event.id);
   res.json({ ok: true, displayState: event.displayState, previousState: event.displayStatePrevious || null, presets: event.displayPresets });
 });
 
@@ -1752,21 +1795,23 @@ app.delete('/api/events/:id/display-presets/:presetId', (req, res) => {
 app.post('/api/events/:id/display/blank', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
-  if (!requireEventAdmin(req, res, event)) return;
+  if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
   ensureEventUiState(event);
   rememberDisplayState(event);
   event.displayState.blackScreen = true;
   event.displayState.sceneLabel = 'Black screen';
   event.displayState.updatedAt = new Date().toISOString();
+  recordScreenAction(event, 'display');
   saveDb();
   io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
+  emitUsageStats(event.id);
   res.json({ ok: true, event: normalizeEvent(event), previousState: event.displayStatePrevious || null });
 });
 
 app.post('/api/events/:id/display/manual', async (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
-  if (!requireEventAdmin(req, res, event)) return;
+  if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
 
   ensureEventUiState(event);
 
@@ -1810,6 +1855,7 @@ app.post('/api/events/:id/display/manual', async (req, res) => {
     event.mode = 'live';
     pushSongHistory(event, { title: title || 'Pinned text', kind: 'manual', source: text, translations });
 
+    recordScreenAction(event, 'manual');
     saveDb();
 
     io.to(`event:${event.id}`).emit('transcript_entry', entry);
@@ -1817,6 +1863,7 @@ app.post('/api/events/:id/display/manual', async (req, res) => {
     io.to(`event:${event.id}`).emit('song_history_updated', {
       songHistory: event.songHistory
     });
+    emitUsageStats(event.id);
 
     res.json({ ok: true, displayState: event.displayState, previousState: event.displayStatePrevious || null, songHistory: event.songHistory });
   } catch (err) {
@@ -1996,7 +2043,9 @@ io.on('connection', (socket) => {
   socket.on('join_event', ({ eventId, role, code, language, participantId }) => {
     const event = db.events[eventId];
     if (!event) return socket.emit('join_error', { message: 'Evenimentul nu există.' });
-    if (role === 'admin' && code !== event.adminCode) return socket.emit('join_error', { message: 'Cod Admin invalid.' });
+    const accessRole = resolveEventRoleFromCode(event, code);
+    if (role === 'admin' && accessRole !== 'admin') return socket.emit('join_error', { message: 'Cod Admin invalid.' });
+    if (role === 'screen' && !['admin', 'screen'].includes(accessRole)) return socket.emit('join_error', { message: 'Cod operator invalid.' });
 
     cleanupSocketPresence(socket);
     socket.data.eventId = eventId;
@@ -2006,13 +2055,20 @@ io.on('connection', (socket) => {
 
     socket.join(`event:${eventId}`);
     if (socket.data.role === 'admin') socket.join(`event:${eventId}:admins`);
+    if (socket.data.role === 'screen') socket.join(`event:${eventId}:screens`);
     if (socket.data.role === 'participant') socket.join(`event:${eventId}:lang:${socket.data.language}`);
 
     if (socket.data.role === 'participant' && socket.data.participantId) {
       registerParticipantSocket(eventId, socket.data.participantId, socket.data.language, socket.id);
+      recordParticipantJoin(event, socket.data.participantId, socket.data.language);
+      saveDb();
       emitParticipantStats(eventId);
     }
-    if (socket.data.role === 'admin') emitParticipantStats(eventId);
+    if (socket.data.role === 'admin' || socket.data.role === 'screen') {
+      recordOperatorJoin(event, socket.data.role);
+      saveDb();
+      emitParticipantStats(eventId);
+    }
 
     socket.emit('joined_event', { ok: true, role: socket.data.role, event: normalizeEvent(event), languageNames: LANGUAGE_NAMES_RO });
   });
@@ -2039,6 +2095,9 @@ io.on('connection', (socket) => {
       await processText(event, cleanText);
     } catch (err) {
       console.error('submit_text error:', err);
+      recordServerError(event, 'Live submit translation failed.');
+      saveDb();
+      emitUsageStats(eventId);
       socket.emit('server_error', { message: 'Eroare la traducere.' });
     }
   });
@@ -2056,6 +2115,7 @@ io.on('connection', (socket) => {
     io.to(`event:${eventId}`).emit('entry_refreshing', { entryId });
     try {
       await retranslateEntry(event, entry);
+      recordTranscriptRefresh(event);
       saveDb();
       io.to(`event:${eventId}`).emit('transcript_source_updated', {
         entryId,
@@ -2068,9 +2128,13 @@ io.on('connection', (socket) => {
       if (event.displayState?.mode === 'auto') {
         io.to(`event:${eventId}`).emit('display_live_entry', entry);
       }
+      emitUsageStats(eventId);
     } catch (err) {
       console.error('admin_update_source error:', err);
+      recordServerError(event, 'Source retranslation failed.');
       io.to(`event:${eventId}`).emit('entry_refresh_failed', { entryId });
+      saveDb();
+      emitUsageStats(eventId);
     }
   });
 
