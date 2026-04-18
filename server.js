@@ -37,6 +37,7 @@ app.get('/participant.html', (req, res) => res.sendFile(path.join(__dirname, 'pu
 app.get('/live', (req, res) => res.sendFile(path.join(__dirname, 'public', 'participant.html')));
 app.get('/translate', (req, res) => res.sendFile(path.join(__dirname, 'public', 'translate.html')));
 app.get('/song', (req, res) => res.sendFile(path.join(__dirname, 'public', 'translate.html')));
+app.get('/remote', (req, res) => res.sendFile(path.join(__dirname, 'public', 'remote.html')));
 
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'sessions.json');
@@ -125,6 +126,7 @@ function defaultDisplayState() {
     clockPosition: 'top-right',
     textSize: 'large',
     screenStyle: 'focus',
+    sceneLabel: '',
     manualSource: '',
     manualTranslations: {},
     updatedAt: null
@@ -143,8 +145,81 @@ function defaultGlobalSongLibrary() {
   return [];
 }
 
+function defaultPinnedTextLibrary() {
+  return [];
+}
+
 function defaultSongHistory() {
   return [];
+}
+
+function defaultUsageStats() {
+  return {
+    participantJoinCount: 0,
+    uniqueParticipantsEver: 0,
+    seenParticipantIds: {},
+    transcriptCount: 0,
+    transcriptRefreshCount: 0,
+    screenChangeCount: 0,
+    manualPushCount: 0,
+    songControlCount: 0,
+    adminJoinCount: 0,
+    screenOperatorJoinCount: 0,
+    lastTranscriptAt: null,
+    lastScreenActionAt: null,
+    lastParticipantJoinAt: null,
+    lastOperatorJoinAt: null,
+    lastOperatorRole: '',
+    lastErrorAt: null,
+    lastErrorMessage: ''
+  };
+}
+
+function cloneDisplaySnapshot(event) {
+  ensureEventUiState(event);
+  return {
+    mode: event.displayState.mode,
+    blackScreen: !!event.displayState.blackScreen,
+    theme: event.displayState.theme,
+    language: event.displayState.language,
+    backgroundPreset: event.displayState.backgroundPreset,
+    customBackground: event.displayState.customBackground,
+    showClock: !!event.displayState.showClock,
+    clockPosition: event.displayState.clockPosition,
+    textSize: event.displayState.textSize,
+    screenStyle: event.displayState.screenStyle,
+    sceneLabel: typeof event.displayState.sceneLabel === 'string' ? event.displayState.sceneLabel : '',
+    manualSource: event.displayState.manualSource || '',
+    manualTranslations: { ...(event.displayState.manualTranslations || {}) },
+    updatedAt: event.displayState.updatedAt || null
+  };
+}
+
+function applyDisplaySnapshot(event, snapshot, updatedAt = new Date().toISOString()) {
+  ensureEventUiState(event);
+  const safe = snapshot || defaultDisplayState();
+  event.displayState = {
+    ...event.displayState,
+    mode: ['auto', 'manual', 'song'].includes(safe.mode) ? safe.mode : 'auto',
+    blackScreen: !!safe.blackScreen,
+    theme: ['dark', 'light'].includes(safe.theme) ? safe.theme : 'dark',
+    language: event.targetLangs.includes(safe.language) ? safe.language : (event.targetLangs[0] || 'no'),
+    backgroundPreset: ['none', 'warm', 'sanctuary', 'soft-light'].includes(safe.backgroundPreset) ? safe.backgroundPreset : 'none',
+    customBackground: typeof safe.customBackground === 'string' ? safe.customBackground : '',
+    showClock: !!safe.showClock,
+    clockPosition: ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(safe.clockPosition) ? safe.clockPosition : 'top-right',
+    textSize: ['compact', 'large', 'xlarge'].includes(safe.textSize) ? safe.textSize : 'large',
+    screenStyle: ['focus', 'wide'].includes(safe.screenStyle) ? safe.screenStyle : 'focus',
+    sceneLabel: typeof safe.sceneLabel === 'string' ? safe.sceneLabel : '',
+    manualSource: typeof safe.manualSource === 'string' ? safe.manualSource : '',
+    manualTranslations: typeof safe.manualTranslations === 'object' && safe.manualTranslations ? { ...safe.manualTranslations } : {},
+    updatedAt
+  };
+}
+
+function rememberDisplayState(event) {
+  ensureEventUiState(event);
+  event.displayStatePrevious = cloneDisplaySnapshot(event);
 }
 
 function ensureEventUiState(event) {
@@ -177,6 +252,9 @@ function ensureEventUiState(event) {
   if (!['focus', 'wide'].includes(event.displayState.screenStyle)) {
     event.displayState.screenStyle = 'focus';
   }
+  if (typeof event.displayState.sceneLabel !== 'string') {
+    event.displayState.sceneLabel = '';
+  }
   if (!Array.isArray(event.songLibrary)) {
     event.songLibrary = defaultSongLibrary();
   }
@@ -192,10 +270,34 @@ function ensureEventUiState(event) {
   if (!Array.isArray(event.songState.blockLabels)) {
     event.songState.blockLabels = [];
   }
+  if (!event.usageStats || typeof event.usageStats !== 'object') {
+    event.usageStats = defaultUsageStats();
+  } else {
+    event.usageStats = {
+      ...defaultUsageStats(),
+      ...event.usageStats,
+      seenParticipantIds: typeof event.usageStats.seenParticipantIds === 'object' && event.usageStats.seenParticipantIds
+        ? { ...event.usageStats.seenParticipantIds }
+        : {}
+    };
+  }
+  if (event.displayStatePrevious && typeof event.displayStatePrevious === 'object') {
+    event.displayStatePrevious = {
+      ...defaultDisplayState(),
+      ...event.displayStatePrevious,
+      sceneLabel: typeof event.displayStatePrevious.sceneLabel === 'string' ? event.displayStatePrevious.sceneLabel : '',
+      manualSource: typeof event.displayStatePrevious.manualSource === 'string' ? event.displayStatePrevious.manualSource : '',
+      manualTranslations: typeof event.displayStatePrevious.manualTranslations === 'object' && event.displayStatePrevious.manualTranslations
+        ? { ...event.displayStatePrevious.manualTranslations }
+        : {}
+    };
+  } else {
+    event.displayStatePrevious = null;
+  }
 }
 
 function defaultDb() {
-  return { events: {}, globalMemory: {}, globalSongLibrary: defaultGlobalSongLibrary(), activeEventId: null };
+  return { events: {}, globalMemory: {}, globalSongLibrary: defaultGlobalSongLibrary(), pinnedTextLibrary: defaultPinnedTextLibrary(), activeEventId: null };
 }
 
 function loadDb() {
@@ -216,6 +318,9 @@ function loadDb() {
 const db = loadDb();
 if (!Array.isArray(db.globalSongLibrary)) {
   db.globalSongLibrary = defaultGlobalSongLibrary();
+}
+if (!Array.isArray(db.pinnedTextLibrary)) {
+  db.pinnedTextLibrary = defaultPinnedTextLibrary();
 }
 
 function saveDb() {
@@ -436,8 +541,10 @@ function normalizeEvent(event) {
     targetLangs: Array.isArray(event.targetLangs) ? event.targetLangs : ['no', 'en'],
     speed: event.speed || 'balanced',
     adminCode: event.adminCode,
+    screenOperatorCode: event.screenOperatorCode || '',
     participantLink: event.participantLink,
     translateLink: event.translateLink || '',
+    remoteControlLink: event.remoteControlLink || '',
     songLink: event.songLink || '',
     qrCodeDataUrl: event.qrCodeDataUrl || '',
     transcripts: Array.isArray(event.transcripts) ? event.transcripts : [],
@@ -451,6 +558,8 @@ function normalizeEvent(event) {
     mode: event.mode || 'live',
     songState: event.songState || defaultSongState(),
     displayState: event.displayState || defaultDisplayState(),
+    displayStatePrevious: event.displayStatePrevious || null,
+    usageStats: buildUsageStats(event.id),
     displayPresets: Array.isArray(event.displayPresets) ? event.displayPresets : [],
     songLibrary: Array.isArray(event.songLibrary) ? event.songLibrary : [],
     songHistory: Array.isArray(event.songHistory) ? event.songHistory : []
@@ -470,9 +579,11 @@ function buildDisplayPayload(event) {
     clockPosition: event.displayState.clockPosition,
     textSize: event.displayState.textSize,
     screenStyle: event.displayState.screenStyle,
+    sceneLabel: event.displayState.sceneLabel,
     manualSource: event.displayState.manualSource,
     manualTranslations: event.displayState.manualTranslations,
     updatedAt: event.displayState.updatedAt,
+    previousState: event.displayStatePrevious || null,
     presets: Array.isArray(event.displayPresets) ? event.displayPresets : []
   };
 }
@@ -501,6 +612,64 @@ function normalizeDisplayPreset(input = {}) {
     updatedAt: new Date().toISOString()
   };
 }
+
+const DISPLAY_SHORTCUTS = {
+  welcome: {
+    label: 'Welcome',
+    mode: 'manual',
+    theme: 'light',
+    backgroundPreset: 'soft-light',
+    customBackground: '',
+    showClock: false,
+    clockPosition: 'top-right',
+    textSize: 'xlarge',
+    screenStyle: 'wide'
+  },
+  worship: {
+    label: 'Worship',
+    mode: 'song',
+    theme: 'dark',
+    backgroundPreset: 'sanctuary',
+    customBackground: '',
+    showClock: false,
+    clockPosition: 'top-right',
+    textSize: 'xlarge',
+    screenStyle: 'focus'
+  },
+  sermon: {
+    label: 'Sermon',
+    mode: 'auto',
+    theme: 'dark',
+    backgroundPreset: 'sanctuary',
+    customBackground: '',
+    showClock: false,
+    clockPosition: 'top-right',
+    textSize: 'large',
+    screenStyle: 'focus'
+  },
+  prayer: {
+    label: 'Prayer',
+    mode: 'manual',
+    theme: 'light',
+    backgroundPreset: 'warm',
+    customBackground: '',
+    showClock: false,
+    clockPosition: 'top-right',
+    textSize: 'large',
+    screenStyle: 'focus'
+  },
+  closing: {
+    label: 'Closing',
+    mode: 'manual',
+    theme: 'light',
+    backgroundPreset: 'warm',
+    customBackground: '',
+    showClock: false,
+    clockPosition: 'top-right',
+    textSize: 'large',
+    screenStyle: 'wide'
+  }
+};
 
 function normalizeLibraryTitle(title) {
   return String(title || '').trim().toLowerCase();
@@ -535,23 +704,46 @@ function upsertLibraryItem(list, { title, text, labels }, maxItems = 100) {
 }
 
 function requireEventAdmin(req, res, event) {
-  const suppliedCode =
-    String(req.body?.code || req.query?.code || req.headers['x-admin-code'] || '').trim();
+  return requireEventRole(req, res, event, ['admin']);
+}
 
-  if (String(event.adminCode || '') !== suppliedCode) {
-    res.status(403).json({ ok: false, error: 'Cod Admin invalid.' });
+function getSuppliedEventCode(req) {
+  return String(
+    req.body?.code
+    || req.query?.code
+    || req.headers['x-access-code']
+    || req.headers['x-screen-code']
+    || req.headers['x-admin-code']
+    || ''
+  ).trim();
+}
+
+function resolveEventRoleFromCode(event, code) {
+  const suppliedCode = String(code || '').trim();
+  if (!suppliedCode) return '';
+  if (String(event.adminCode || '') === suppliedCode) return 'admin';
+  if (String(event.screenOperatorCode || '') === suppliedCode) return 'screen';
+  return '';
+}
+
+function requireEventRole(req, res, event, allowedRoles = ['admin']) {
+  const role = resolveEventRoleFromCode(event, getSuppliedEventCode(req));
+  if (!allowedRoles.includes(role)) {
+    res.status(403).json({ ok: false, error: 'Cod de acces invalid.' });
     return false;
   }
-
-  return true;
+  req.eventRole = role;
+  return role;
 }
 
 async function createEvent({ name, speed, sourceLang, targetLangs, baseUrl, scheduledAt }) {
   const id = randomUUID();
   const adminCode = `SV-ADMIN-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+  const screenOperatorCode = `SV-SCREEN-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
   const participantLink = `${baseUrl}/participant?event=${id}`;
   const translateLink = `${baseUrl}/translate?event=${id}`;
   const songLink = `${baseUrl}/song?event=${id}`;
+  const remoteControlLink = `${baseUrl}/remote?event=${id}&code=${encodeURIComponent(screenOperatorCode)}`;
   const qrCodeDataUrl = await QRCode.toDataURL(participantLink);
 
   const event = {
@@ -562,9 +754,11 @@ async function createEvent({ name, speed, sourceLang, targetLangs, baseUrl, sche
     speed: speed || 'balanced',
     scheduledAt: scheduledAt || null,
     adminCode,
+    screenOperatorCode,
     participantLink,
     translateLink,
     songLink,
+    remoteControlLink,
     qrCodeDataUrl,
     transcripts: [],
     glossary: {},
@@ -576,8 +770,10 @@ async function createEvent({ name, speed, sourceLang, targetLangs, baseUrl, sche
     mode: 'live',
     songState: defaultSongState(),
     displayState: { ...defaultDisplayState(), language: (targetLangs?.length ? targetLangs[0] : 'no') },
+    displayStatePrevious: null,
     songLibrary: defaultSongLibrary(),
-    songHistory: defaultSongHistory()
+    songHistory: defaultSongHistory(),
+    usageStats: defaultUsageStats()
   };
 
   db.events[id] = event;
@@ -924,9 +1120,79 @@ function buildParticipantStats(eventId) {
   };
 }
 
+function buildUsageStats(eventId) {
+  const event = db.events[eventId];
+  if (!event) return defaultUsageStats();
+  ensureEventUiState(event);
+  const presenceStats = buildParticipantStats(eventId);
+  return {
+    ...event.usageStats,
+    currentParticipants: presenceStats.uniqueCount,
+    currentLanguages: presenceStats.languages,
+    transcriptCount: Array.isArray(event.transcripts) ? event.transcripts.length : (event.usageStats.transcriptCount || 0),
+    manualHistoryCount: Array.isArray(event.songHistory) ? event.songHistory.filter((item) => (item.kind || 'song') === 'manual').length : 0,
+    songHistoryCount: Array.isArray(event.songHistory) ? event.songHistory.filter((item) => (item.kind || 'song') === 'song').length : 0
+  };
+}
+
+function emitUsageStats(eventId) {
+  if (!eventId) return;
+  io.to(`event:${eventId}:admins`).emit('usage_stats', buildUsageStats(eventId));
+}
+
+function recordParticipantJoin(event, participantId, language) {
+  ensureEventUiState(event);
+  event.usageStats.participantJoinCount += 1;
+  event.usageStats.lastParticipantJoinAt = new Date().toISOString();
+  const normalizedId = String(participantId || '').trim();
+  if (normalizedId && !event.usageStats.seenParticipantIds[normalizedId]) {
+    event.usageStats.seenParticipantIds[normalizedId] = language || 'unknown';
+    event.usageStats.uniqueParticipantsEver += 1;
+  }
+}
+
+function recordOperatorJoin(event, role) {
+  ensureEventUiState(event);
+  if (role === 'screen') {
+    event.usageStats.screenOperatorJoinCount += 1;
+  } else if (role === 'admin') {
+    event.usageStats.adminJoinCount += 1;
+  }
+  event.usageStats.lastOperatorJoinAt = new Date().toISOString();
+  event.usageStats.lastOperatorRole = role || '';
+}
+
+function recordTranscriptCreated(event) {
+  ensureEventUiState(event);
+  event.usageStats.transcriptCount = Array.isArray(event.transcripts) ? event.transcripts.length : (event.usageStats.transcriptCount + 1);
+  event.usageStats.lastTranscriptAt = new Date().toISOString();
+}
+
+function recordTranscriptRefresh(event) {
+  ensureEventUiState(event);
+  event.usageStats.transcriptRefreshCount += 1;
+  event.usageStats.lastTranscriptAt = new Date().toISOString();
+}
+
+function recordScreenAction(event, kind = 'display') {
+  ensureEventUiState(event);
+  event.usageStats.screenChangeCount += 1;
+  if (kind === 'manual') event.usageStats.manualPushCount += 1;
+  if (kind === 'song') event.usageStats.songControlCount += 1;
+  event.usageStats.lastScreenActionAt = new Date().toISOString();
+}
+
+function recordServerError(event, message) {
+  if (!event) return;
+  ensureEventUiState(event);
+  event.usageStats.lastErrorAt = new Date().toISOString();
+  event.usageStats.lastErrorMessage = String(message || '').trim();
+}
+
 function emitParticipantStats(eventId) {
   if (!eventId) return;
   io.to(`event:${eventId}:admins`).emit('participant_stats', buildParticipantStats(eventId));
+  emitUsageStats(eventId);
 }
 
 function registerParticipantSocket(eventId, participantId, language, socketId) {
@@ -1221,11 +1487,13 @@ app.post('/api/events/:id/song/clear', (req, res) => {
   const event = db.events[req.params.id];
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
   if (!requireEventAdmin(req, res, event)) return;
+  rememberDisplayState(event);
   event.songState = defaultSongState();
   event.mode = 'live';
   ensureEventUiState(event);
   event.displayState.mode = 'auto';
   event.displayState.blackScreen = false;
+  event.displayState.sceneLabel = '';
   event.displayState.updatedAt = new Date().toISOString();
   saveDb();
   io.to(`event:${event.id}`).emit('song_clear');
@@ -1251,14 +1519,16 @@ app.post('/api/events/:id/display/mode', (req, res) => {
     return res.status(400).json({ ok: false, error: 'Nu exista continut activ pentru Song mode.' });
   }
 
+  rememberDisplayState(event);
   event.displayState.mode = mode;
   event.displayState.blackScreen = false;
+  event.displayState.sceneLabel = '';
   event.displayState.updatedAt = new Date().toISOString();
   saveDb();
 
   io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
 
-  res.json({ ok: true, displayState: event.displayState, event: normalizeEvent(event) });
+  res.json({ ok: true, displayState: event.displayState, previousState: event.displayStatePrevious || null, event: normalizeEvent(event) });
 });
 
 app.post('/api/events/:id/display/theme', (req, res) => {
@@ -1272,7 +1542,9 @@ app.post('/api/events/:id/display/theme', (req, res) => {
     return res.status(400).json({ ok: false, error: 'Tema invalida.' });
   }
 
+  rememberDisplayState(event);
   event.displayState.theme = theme;
+  event.displayState.sceneLabel = '';
   event.displayState.updatedAt = new Date().toISOString();
   saveDb();
 
@@ -1294,11 +1566,13 @@ app.post('/api/events/:id/display/language', (req, res) => {
   if (!event.targetLangs.includes(language)) {
     return res.status(400).json({ ok: false, error: 'Limba invalida pentru ecran.' });
   }
+  rememberDisplayState(event);
   event.displayState.language = language;
+  event.displayState.sceneLabel = '';
   event.displayState.updatedAt = new Date().toISOString();
   saveDb();
   io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
-  res.json({ ok: true, displayState: event.displayState });
+  res.json({ ok: true, displayState: event.displayState, previousState: event.displayStatePrevious || null });
 });
 
 app.post('/api/events/:id/display/settings', (req, res) => {
@@ -1324,16 +1598,76 @@ app.post('/api/events/:id/display/settings', (req, res) => {
   if (!['focus', 'wide'].includes(screenStyle)) {
     return res.status(400).json({ ok: false, error: 'Layout ecran invalid.' });
   }
+  rememberDisplayState(event);
   event.displayState.backgroundPreset = backgroundPreset;
   event.displayState.customBackground = customBackground;
   event.displayState.showClock = !!showClock;
   event.displayState.clockPosition = clockPosition;
   event.displayState.textSize = textSize;
   event.displayState.screenStyle = screenStyle;
+  event.displayState.sceneLabel = '';
   event.displayState.updatedAt = new Date().toISOString();
   saveDb();
   io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
-  res.json({ ok: true, displayState: event.displayState });
+  res.json({ ok: true, displayState: event.displayState, previousState: event.displayStatePrevious || null });
+});
+
+app.post('/api/events/:id/display/restore-last', (req, res) => {
+  const event = db.events[req.params.id];
+  if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
+  if (!requireEventAdmin(req, res, event)) return;
+  ensureEventUiState(event);
+  if (!event.displayStatePrevious) {
+    return res.status(400).json({ ok: false, error: 'Nu exista o stare anterioara pentru restore.' });
+  }
+  const currentSnapshot = cloneDisplaySnapshot(event);
+  const previousSnapshot = event.displayStatePrevious;
+  applyDisplaySnapshot(event, previousSnapshot);
+  event.displayStatePrevious = currentSnapshot;
+  saveDb();
+  io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
+  res.json({ ok: true, displayState: event.displayState, previousState: event.displayStatePrevious || null, event: normalizeEvent(event) });
+});
+
+app.post('/api/events/:id/display/shortcut', (req, res) => {
+  const event = db.events[req.params.id];
+  if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
+  if (!requireEventAdmin(req, res, event)) return;
+  ensureEventUiState(event);
+
+  const shortcutKey = String(req.body.shortcut || '').trim().toLowerCase();
+  const shortcut = DISPLAY_SHORTCUTS[shortcutKey];
+  if (!shortcut) {
+    return res.status(400).json({ ok: false, error: 'Shortcut inexistent.' });
+  }
+
+  let mode = shortcut.mode;
+  if (mode === 'song' && !event.songState?.activeBlock && !event.songState?.translations) {
+    mode = 'auto';
+  }
+  if (mode === 'manual' && !event.displayState?.manualSource) {
+    mode = 'auto';
+  }
+
+  rememberDisplayState(event);
+  event.displayState.mode = mode;
+  event.displayState.blackScreen = false;
+  event.displayState.theme = shortcut.theme;
+  event.displayState.language = event.targetLangs.includes(String(req.body.language || '').trim())
+    ? String(req.body.language || '').trim()
+    : (event.displayState.language || event.targetLangs[0] || 'no');
+  event.displayState.backgroundPreset = shortcut.backgroundPreset;
+  event.displayState.customBackground = shortcut.customBackground;
+  event.displayState.showClock = !!shortcut.showClock;
+  event.displayState.clockPosition = shortcut.clockPosition;
+  event.displayState.textSize = shortcut.textSize;
+  event.displayState.screenStyle = shortcut.screenStyle;
+  event.displayState.sceneLabel = shortcut.label;
+  event.displayState.updatedAt = new Date().toISOString();
+  saveDb();
+
+  io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
+  res.json({ ok: true, shortcut: shortcut.label, displayState: event.displayState, previousState: event.displayStatePrevious || null, event: normalizeEvent(event) });
 });
 
 app.get('/api/events/:id/display-presets', (req, res) => {
@@ -1386,6 +1720,7 @@ app.post('/api/events/:id/display-presets/:presetId/apply', (req, res) => {
     return res.status(400).json({ ok: false, error: 'Presetul Song are nevoie de continut activ in Song mode.' });
   }
 
+  rememberDisplayState(event);
   event.displayState.mode = preset.mode;
   event.displayState.blackScreen = false;
   event.displayState.theme = preset.theme;
@@ -1396,10 +1731,11 @@ app.post('/api/events/:id/display-presets/:presetId/apply', (req, res) => {
   event.displayState.clockPosition = preset.clockPosition;
   event.displayState.textSize = preset.textSize;
   event.displayState.screenStyle = preset.screenStyle;
+  event.displayState.sceneLabel = preset.name;
   event.displayState.updatedAt = new Date().toISOString();
   saveDb();
   io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
-  res.json({ ok: true, displayState: event.displayState, presets: event.displayPresets });
+  res.json({ ok: true, displayState: event.displayState, previousState: event.displayStatePrevious || null, presets: event.displayPresets });
 });
 
 app.delete('/api/events/:id/display-presets/:presetId', (req, res) => {
@@ -1418,11 +1754,13 @@ app.post('/api/events/:id/display/blank', (req, res) => {
   if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
   if (!requireEventAdmin(req, res, event)) return;
   ensureEventUiState(event);
+  rememberDisplayState(event);
   event.displayState.blackScreen = true;
+  event.displayState.sceneLabel = 'Black screen';
   event.displayState.updatedAt = new Date().toISOString();
   saveDb();
   io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
-  res.json({ ok: true, event: normalizeEvent(event) });
+  res.json({ ok: true, event: normalizeEvent(event), previousState: event.displayStatePrevious || null });
 });
 
 app.post('/api/events/:id/display/manual', async (req, res) => {
@@ -1458,10 +1796,12 @@ app.post('/api/events/:id/display/manual', async (req, res) => {
       event.transcripts = event.transcripts.slice(-300);
     }
 
+    rememberDisplayState(event);
     event.displayState = {
       ...event.displayState,
       mode: 'manual',
       blackScreen: false,
+      sceneLabel: '',
       manualSource: text,
       manualTranslations: translations,
       updatedAt: new Date().toISOString()
@@ -1478,7 +1818,7 @@ app.post('/api/events/:id/display/manual', async (req, res) => {
       songHistory: event.songHistory
     });
 
-    res.json({ ok: true, displayState: event.displayState, songHistory: event.songHistory });
+    res.json({ ok: true, displayState: event.displayState, previousState: event.displayStatePrevious || null, songHistory: event.songHistory });
   } catch (err) {
     console.error('display manual error:', err);
     res.status(500).json({ ok: false, error: 'Nu am putut trimite textul pe ecran.' });
@@ -1540,6 +1880,27 @@ app.post('/api/global-song-library', (req, res) => {
   upsertLibraryItem(db.globalSongLibrary, { title, text, labels }, 500);
   saveDb();
   res.json({ ok: true, globalSongLibrary: db.globalSongLibrary });
+});
+
+app.get('/api/pinned-text-library', (req, res) => {
+  res.json({ ok: true, pinnedTextLibrary: Array.isArray(db.pinnedTextLibrary) ? db.pinnedTextLibrary : [] });
+});
+
+app.post('/api/pinned-text-library', (req, res) => {
+  const title = String(req.body.title || '').trim();
+  const text = sanitizeStructuredText(req.body.text || '');
+  if (!title || !text) {
+    return res.status(400).json({ ok: false, error: 'Titlu sau text lipsa.' });
+  }
+  upsertLibraryItem(db.pinnedTextLibrary, { title, text, labels: [] }, 300);
+  saveDb();
+  res.json({ ok: true, pinnedTextLibrary: db.pinnedTextLibrary });
+});
+
+app.delete('/api/pinned-text-library/:itemId', (req, res) => {
+  db.pinnedTextLibrary = (db.pinnedTextLibrary || []).filter((item) => item.id !== req.params.itemId);
+  saveDb();
+  res.json({ ok: true, pinnedTextLibrary: db.pinnedTextLibrary });
 });
 
 app.delete('/api/global-song-library/:songId', (req, res) => {
