@@ -18,10 +18,10 @@
       </div>
     </div>
 
-    <div class="panel glass-panel section-stack">
+    <div id="remoteMainScreenPanel" class="panel glass-panel section-stack">
       <div class="section-head">
         <h2>Main Screen Control</h2>
-        <div class="live-chip">Limited operator role</div>
+        <div id="remoteAccessProfileBadge" class="live-chip">Remote operator</div>
       </div>
       <div class="button-row compact-row">
         <button id="remoteLiveBtn" class="btn btn-dark" type="button">Live follow</button>
@@ -45,6 +45,18 @@
     <div class="cards-grid two">
       <div class="panel glass-panel section-stack">
         <div class="section-head">
+          <h2>Live Previews</h2>
+          <div class="muted">Projector and participant view</div>
+        </div>
+        <div class="button-row compact-row">
+          <button id="remoteOpenMainPreviewBtn" class="btn btn-dark" type="button">Open main screen</button>
+          <button id="remoteOpenParticipantPreviewBtn" class="btn btn-dark" type="button">Open participant</button>
+          <button id="remoteOpenBothPreviewsBtn" class="btn btn-primary" type="button">Open both</button>
+        </div>
+      </div>
+
+      <div class="panel glass-panel section-stack">
+        <div class="section-head">
           <h2>Song Navigation</h2>
           <div id="remoteSongLabel" class="muted">No active verse</div>
         </div>
@@ -62,6 +74,60 @@
         <div id="remotePresetsList" class="history-list">
           <div class="muted">No presets available.</div>
         </div>
+      </div>
+    </div>
+
+    <div id="remoteSongEditorPanel" class="panel glass-panel section-stack">
+      <div class="section-head">
+        <h2>Song Editor</h2>
+        <div class="muted">Compose, save, and send songs live</div>
+      </div>
+      <div class="split-2 compact-library-row">
+        <div>
+          <label for="remoteSongTitle">Title</label>
+          <input id="remoteSongTitle" type="text" placeholder="Song title">
+        </div>
+        <div>
+          <label for="remoteSongSourceLang">Song language</label>
+          <select id="remoteSongSourceLang"></select>
+        </div>
+      </div>
+      <textarea id="remoteSongText" placeholder="Write song lyrics here"></textarea>
+      <div class="button-row compact-row">
+        <button id="remoteSongSaveBtn" class="btn btn-dark" type="button">Save to church library</button>
+        <button id="remoteSongSendBtn" class="btn btn-primary" type="button">Send first verse live</button>
+        <button id="remoteSongClearBtn" class="btn btn-dark" type="button">Clear editor</button>
+      </div>
+    </div>
+
+    <div id="remoteGlossaryPanel" class="panel glass-panel section-stack">
+      <div class="section-head">
+        <h2>Glossary Control</h2>
+        <div class="muted">Translation glossary and speech corrections</div>
+      </div>
+      <div class="split-2 compact-library-row">
+        <div>
+          <label for="remoteGlossaryMode">Mode</label>
+          <select id="remoteGlossaryMode">
+            <option value="translation" selected>Translation glossary</option>
+            <option value="source">Speech correction</option>
+          </select>
+        </div>
+        <div id="remoteGlossaryLangWrap">
+          <label for="remoteGlossaryLang">Language</label>
+          <select id="remoteGlossaryLang"></select>
+        </div>
+      </div>
+      <label class="inline-check"><input id="remoteGlossaryPermanent" type="checkbox" checked> Save permanently</label>
+      <div id="remoteTranslationGlossaryFields" class="section-stack compact-stack">
+        <input id="remoteGlossarySource" type="text" placeholder="Source word or phrase">
+        <input id="remoteGlossaryTarget" type="text" placeholder="Correct target form">
+        <button id="remoteSaveGlossaryBtn" class="btn btn-primary" type="button">Save glossary</button>
+      </div>
+      <div id="remoteSourceCorrectionFields" class="section-stack compact-stack" style="display:none">
+        <input id="remoteSourceWrong" type="text" placeholder="Wrong heard form">
+        <input id="remoteSourceCorrect" type="text" placeholder="Correct source form">
+        <button id="remoteSaveSourceCorrectionBtn" class="btn btn-primary" type="button">Save speech correction</button>
       </div>
     </div>
   </div>

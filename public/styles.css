@@ -895,6 +895,10 @@ progress::-moz-progress-bar {
   gap: 16px;
 }
 
+.participant-shell:not(.remote-shell) {
+  color: #231a11;
+}
+
 .participant-premium-shell {
   gap: 18px;
 }
@@ -916,6 +920,14 @@ progress::-moz-progress-bar {
   overflow: hidden;
 }
 
+.participant-shell:not(.remote-shell) .participant-header,
+.participant-shell:not(.remote-shell) .participant-controls,
+.participant-shell:not(.remote-shell) .participant-live,
+.participant-shell:not(.remote-shell) .participant-live-stage,
+.participant-shell:not(.remote-shell) .participant-history-panel {
+  color: #231a11;
+}
+
 .participant-premium-hero::after {
   content: "";
   position: absolute;
@@ -930,6 +942,18 @@ progress::-moz-progress-bar {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 6px;
+}
+
+.participant-shell:not(.remote-shell) .status-pill {
+  color: #6f4b17;
+  background: rgba(255, 245, 227, 0.82);
+  border-color: rgba(178, 129, 52, 0.24);
+}
+
+.participant-shell:not(.remote-shell) .status-pill.active {
+  color: #fff8eb;
+  background: linear-gradient(135deg, #b37a26, #d8b06a);
+  box-shadow: 0 14px 34px rgba(179, 122, 38, 0.24);
 }
 
 .participant-controls {
@@ -947,6 +971,32 @@ progress::-moz-progress-bar {
 .participant-control-group {
   display: grid;
   gap: 8px;
+}
+
+.participant-shell:not(.remote-shell) label,
+.participant-shell:not(.remote-shell) .label,
+.participant-shell:not(.remote-shell) .history-label {
+  color: #9a6a20;
+}
+
+.participant-shell:not(.remote-shell) .muted,
+.participant-shell:not(.remote-shell) .status-text,
+.participant-shell:not(.remote-shell) .small {
+  color: rgba(76, 58, 33, 0.78);
+}
+
+.participant-shell:not(.remote-shell) input,
+.participant-shell:not(.remote-shell) select,
+.participant-shell:not(.remote-shell) textarea {
+  background: rgba(255, 251, 245, 0.88);
+  color: #20170d;
+  border-color: rgba(178, 129, 52, 0.2);
+}
+
+.participant-shell:not(.remote-shell) input:focus,
+.participant-shell:not(.remote-shell) select:focus,
+.participant-shell:not(.remote-shell) textarea:focus {
+  background: rgba(255, 252, 247, 0.98);
 }
 
 .participant-status-group .status-text {
@@ -1011,9 +1061,23 @@ progress::-moz-progress-bar {
   text-wrap: balance;
 }
 
+.participant-shell:not(.remote-shell) .participant-main-text {
+  color: #1f160d;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.28);
+}
+
 .history-text {
   line-height: 1.45;
   font-size: 0.95rem;
+}
+
+.participant-shell:not(.remote-shell) .history-item {
+  background: rgba(255, 251, 245, 0.7);
+  border-color: rgba(178, 129, 52, 0.12);
+}
+
+.participant-shell:not(.remote-shell) .history-text {
+  color: #3f2f1f;
 }
 
 .updating-badge {

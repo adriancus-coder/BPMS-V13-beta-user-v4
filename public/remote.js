@@ -10,6 +10,13 @@ const state = {
   access: null
 };
 
+const remoteProfileLabels = {
+  main_screen: 'Main Screen only',
+  song_only: 'Song only',
+  main_and_song: 'Main Screen + Song',
+  full: 'Full operator'
+};
+
 function langLabel(code) {
   return state.availableLanguages[code] || String(code || '').toUpperCase();
 }
@@ -41,6 +48,45 @@ function updateHeader() {
   $('remoteModeBadge').textContent = displayState.sceneLabel || modeLabel;
   $('remoteLanguageBadge').textContent = displayState.blackScreen ? '-' : langLabel(displayState.language || 'no');
   $('remoteSongLabel').textContent = state.currentEvent?.songState?.blockLabels?.[state.currentEvent?.songState?.currentIndex] || 'No active verse';
+  const profileBadge = $('remoteAccessProfileBadge');
+  if (profileBadge) {
+    const profile = state.access?.operator?.profile || '';
+    profileBadge.textContent = remoteProfileLabels[profile] || 'Remote operator';
+  }
+}
+
+function populateRemoteLanguageSelects() {
+  const available = Object.entries(state.availableLanguages || {});
+  const songLangSelect = $('remoteSongSourceLang');
+  const glossaryLangSelect = $('remoteGlossaryLang');
+  [songLangSelect, glossaryLangSelect].forEach((select) => {
+    if (!select) return;
+    const currentValue = select.value;
+    select.innerHTML = available.map(([code, label]) => `<option value="${code}">${label}</option>`).join('');
+    if (currentValue && state.availableLanguages[currentValue]) {
+      select.value = currentValue;
+    } else if (state.currentEvent?.sourceLang && state.availableLanguages[state.currentEvent.sourceLang]) {
+      select.value = state.currentEvent.sourceLang;
+    } else if (available[0]?.[0]) {
+      select.value = available[0][0];
+    }
+  });
+}
+
+function updateRemoteGlossaryMode() {
+  const mode = $('remoteGlossaryMode')?.value || 'translation';
+  const translationFields = $('remoteTranslationGlossaryFields');
+  const sourceFields = $('remoteSourceCorrectionFields');
+  const langWrap = $('remoteGlossaryLangWrap');
+  if (translationFields) translationFields.style.display = mode === 'translation' ? 'grid' : 'none';
+  if (sourceFields) sourceFields.style.display = mode === 'source' ? 'grid' : 'none';
+  if (langWrap) langWrap.style.display = mode === 'translation' ? 'block' : 'none';
+}
+
+function clearRemoteSongEditor() {
+  if ($('remoteSongTitle')) $('remoteSongTitle').value = '';
+  if ($('remoteSongText')) $('remoteSongText').value = '';
+  if ($('remoteSongSourceLang')) $('remoteSongSourceLang').value = state.currentEvent?.sourceLang || 'ro';
 }
 
 function renderQuickLanguages() {
@@ -78,6 +124,7 @@ function refreshRemoteUi() {
   const activeMode = displayState.blackScreen ? 'blank' : (displayState.mode || 'auto');
   const mainScreenAllowed = can('main_screen');
   const songAllowed = can('song');
+  const glossaryAllowed = can('glossary');
   [
     { id: 'remoteLiveBtn', active: activeMode === 'auto', activeClass: 'btn-primary', visible: mainScreenAllowed },
     { id: 'remotePinnedBtn', active: activeMode === 'manual', activeClass: 'btn-primary', visible: mainScreenAllowed },
@@ -95,15 +142,21 @@ function refreshRemoteUi() {
   const quickLanguages = $('remoteQuickLanguages');
   const shortcuts = $('remoteShortcuts');
   const presetsList = $('remotePresetsList');
-  const quickLanguagesPanel = quickLanguages?.closest('.panel');
+  const mainScreenPanel = $('remoteMainScreenPanel');
   const songPanel = $('remotePrevSongBtn')?.closest('.panel');
   const presetsPanel = presetsList?.closest('.panel');
+  const songEditorPanel = $('remoteSongEditorPanel');
+  const glossaryPanel = $('remoteGlossaryPanel');
+  if (mainScreenPanel) mainScreenPanel.hidden = !mainScreenAllowed;
   if (quickLanguages) quickLanguages.hidden = !mainScreenAllowed;
   if (shortcuts) shortcuts.hidden = !mainScreenAllowed;
-  if (quickLanguagesPanel) quickLanguagesPanel.hidden = !mainScreenAllowed && !songAllowed;
   if (songPanel) songPanel.hidden = !songAllowed;
   if (presetsPanel) presetsPanel.hidden = !mainScreenAllowed;
+  if (songEditorPanel) songEditorPanel.hidden = !songAllowed;
+  if (glossaryPanel) glossaryPanel.hidden = !glossaryAllowed;
   updateHeader();
+  populateRemoteLanguageSelects();
+  updateRemoteGlossaryMode();
   if (mainScreenAllowed) {
     renderQuickLanguages();
     renderPresets();
@@ -144,6 +197,7 @@ socket.on('joined_event', ({ role, event, access }) => {
   if (role !== 'screen') return;
   state.currentEvent = event;
   state.access = access || null;
+  clearRemoteSongEditor();
   refreshRemoteUi();
   setStatus(access?.operator?.name ? `Remote control connected as ${access.operator.name}.` : 'Remote control connected.');
 });
@@ -239,12 +293,106 @@ $('remotePresetsList').addEventListener('click', async (e) => {
   }
 });
 
+$('remoteOpenMainPreviewBtn').addEventListener('click', () => {
+  const url = state.currentEvent?.translateLink || '';
+  if (url) window.open(url, '_blank');
+});
+
+$('remoteOpenParticipantPreviewBtn').addEventListener('click', () => {
+  const url = state.currentEvent?.participantLink || '';
+  if (url) window.open(url, '_blank');
+});
+
+$('remoteOpenBothPreviewsBtn').addEventListener('click', () => {
+  const mainUrl = state.currentEvent?.translateLink || '';
+  const participantUrl = state.currentEvent?.participantLink || '';
+  if (mainUrl) window.open(mainUrl, '_blank');
+  if (participantUrl) window.open(participantUrl, '_blank');
+});
+
+$('remoteSongClearBtn').addEventListener('click', () => {
+  clearRemoteSongEditor();
+  setStatus('Song editor cleared.');
+});
+
+$('remoteSongSaveBtn').addEventListener('click', async () => {
+  const title = $('remoteSongTitle')?.value.trim() || '';
+  const text = $('remoteSongText')?.value.trim() || '';
+  const sourceLang = $('remoteSongSourceLang')?.value || state.currentEvent?.sourceLang || 'ro';
+  if (!title || !text) return setStatus('Add title and song text first.');
+  try {
+    const res = await fetch(`/api/events/${state.eventId}/global-song-library`, eventCodeOptions('POST', { title, text, labels: [], sourceLang }));
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Could not save song.');
+    clearRemoteSongEditor();
+    setStatus('Song saved to church library.');
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
+$('remoteSongSendBtn').addEventListener('click', async () => {
+  const title = $('remoteSongTitle')?.value.trim() || '';
+  const text = $('remoteSongText')?.value.trim() || '';
+  const sourceLang = $('remoteSongSourceLang')?.value || state.currentEvent?.sourceLang || 'ro';
+  if (!text) return setStatus('Add song text first.');
+  try {
+    const res = await fetch(`/api/events/${state.eventId}/song/load`, eventCodeOptions('POST', { title, text, labels: [], sourceLang }));
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Could not send song.');
+    state.currentEvent = data.event || state.currentEvent;
+    refreshRemoteUi();
+    setStatus('Song loaded and first verse sent live.');
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
+$('remoteGlossaryMode').addEventListener('change', updateRemoteGlossaryMode);
+
+$('remoteSaveGlossaryBtn').addEventListener('click', async () => {
+  const source = $('remoteGlossarySource')?.value.trim() || '';
+  const target = $('remoteGlossaryTarget')?.value.trim() || '';
+  const lang = $('remoteGlossaryLang')?.value || '';
+  const permanent = !!$('remoteGlossaryPermanent')?.checked;
+  if (!source || !target || !lang) return setStatus('Complete glossary fields first.');
+  try {
+    const res = await fetch(`/api/events/${state.eventId}/glossary`, eventCodeOptions('POST', { source, target, lang, permanent }));
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Could not save glossary item.');
+    $('remoteGlossarySource').value = '';
+    $('remoteGlossaryTarget').value = '';
+    setStatus('Glossary item saved.');
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
+$('remoteSaveSourceCorrectionBtn').addEventListener('click', async () => {
+  const heard = $('remoteSourceWrong')?.value.trim() || '';
+  const correct = $('remoteSourceCorrect')?.value.trim() || '';
+  const permanent = !!$('remoteGlossaryPermanent')?.checked;
+  if (!heard || !correct) return setStatus('Complete correction fields first.');
+  try {
+    const res = await fetch(`/api/events/${state.eventId}/source-corrections`, eventCodeOptions('POST', { heard, correct, permanent }));
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Could not save correction.');
+    $('remoteSourceWrong').value = '';
+    $('remoteSourceCorrect').value = '';
+    setStatus('Speech correction saved.');
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
 window.addEventListener('load', async () => {
   try {
     const res = await fetch('/api/languages');
     const data = await res.json();
     state.availableLanguages = data.languages || {};
   } catch (_) {}
+  populateRemoteLanguageSelects();
+  updateRemoteGlossaryMode();
   refreshRemoteUi();
   await join();
 });

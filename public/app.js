@@ -726,6 +726,7 @@ function renderRemoteOperators(items = []) {
         </div>
         <div class="actions">
           <button class="btn btn-dark" type="button" data-remote-operator-action="copy" data-remote-operator-id="${operator.id}">Copy</button>
+          <button class="btn btn-dark" type="button" data-remote-operator-action="email" data-remote-operator-id="${operator.id}">Email</button>
           <button class="btn btn-primary" type="button" data-remote-operator-action="open" data-remote-operator-id="${operator.id}">Open</button>
           <button type="button" data-remote-operator-action="delete" data-remote-operator-id="${operator.id}">Delete</button>
         </div>
@@ -2095,6 +2096,15 @@ $('remoteOperatorsList')?.addEventListener('click', async (e) => {
   }
   if (action === 'open') {
     if (operator.remoteLink) window.open(operator.remoteLink, '_blank');
+    return;
+  }
+  if (action === 'email') {
+    const recipient = window.prompt('Email address for this remote link:');
+    if (!recipient) return;
+    const subject = encodeURIComponent(`Sanctuary Voice remote access for ${currentEvent?.name || 'event'}`);
+    const body = encodeURIComponent(`Hello,\n\nUse this Sanctuary Voice remote link:\n${operator.remoteLink || ''}\n\nOperator: ${operator.name || 'Operator'}\nProfile: ${remoteProfileLabels[operator.profile] || 'Main Screen only'}\n\n`);
+    window.location.href = `mailto:${encodeURIComponent(recipient)}?subject=${subject}&body=${body}`;
+    setStatus(`Prepared email for ${operator.name || 'operator'}.`);
     return;
   }
   if (action === 'delete') {
