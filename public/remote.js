@@ -418,6 +418,15 @@ $('remoteSongClearBtn').addEventListener('click', () => {
   setStatus('Song editor cleared.');
 });
 
+$('remoteBackToLiveTextBtn').addEventListener('click', async () => {
+  try {
+    await post(`/api/events/${state.eventId}/mode`, { mode: 'live' });
+    setStatus('Back to live text. Participants will receive the next transcript lines.');
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
 $('remoteSongSaveBtn').addEventListener('click', async () => {
   const title = $('remoteSongTitle')?.value.trim() || '';
   const text = $('remoteSongText')?.value.trim() || '';

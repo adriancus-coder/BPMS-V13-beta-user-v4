@@ -16,6 +16,11 @@ let screenWakeLock = null;
 window.isRecognitionRunning = false;
 let availableLanguages = {};
 
+const AUDIO_GATE_MIN_PEAK = 10;
+const AUDIO_GATE_MIN_ACTIVE_FRAMES = 5;
+const AUDIO_GATE_MIN_DYNAMIC_RANGE = 4;
+const AUDIO_GATE_STRONG_PEAK = 32;
+
 let audioState = {
   stream: null,
   context: null,
@@ -33,7 +38,12 @@ let audioState = {
   chunkTimer: null,
   mimeType: '',
   monitorGainNode: null,
-  monitorEnabled: false
+  monitorEnabled: false,
+  currentLevel: 0,
+  chunkPeakLevel: 0,
+  chunkMinLevel: 100,
+  chunkActiveFrames: 0,
+  lastGateStatusAt: 0
 };
 
 function langLabel(code) {
@@ -349,6 +359,9 @@ function refreshDisplayControls() {
     languageSelect.innerHTML = langs.map((lang) => `<option value="${lang}">${escapeHtml(langLabel(lang))}</option>`).join('');
     languageSelect.value = currentEvent?.displayState?.language || langs[0] || 'no';
   }
+  if ($('currentSourceLang')) {
+    $('currentSourceLang').value = currentEvent?.sourceLang || 'ro';
+  }
   if (backgroundInput) {
     backgroundInput.value = currentEvent?.displayState?.customBackground || '';
   }
@@ -455,10 +468,12 @@ function fillGlossaryLangs(targetLangs = []) {
 
 function fillLanguageSelectors() {
   const sourceSelect = $('sourceLang');
+  const currentSourceSelect = $('currentSourceLang');
   const songSourceSelect = $('songSourceLang');
   const manualSourceSelect = $('manualSourceLang');
   const targetBox = $('targetLangList');
   sourceSelect.innerHTML = '';
+  if (currentSourceSelect) currentSourceSelect.innerHTML = '';
   if (songSourceSelect) songSourceSelect.innerHTML = '';
   if (manualSourceSelect) manualSourceSelect.innerHTML = '';
   targetBox.innerHTML = '';
@@ -468,6 +483,13 @@ function fillLanguageSelectors() {
     option.textContent = label;
     if (code === 'ro') option.selected = true;
     sourceSelect.appendChild(option);
+    if (currentSourceSelect) {
+      const currentOption = document.createElement('option');
+      currentOption.value = code;
+      currentOption.textContent = label;
+      if (code === 'ro') currentOption.selected = true;
+      currentSourceSelect.appendChild(currentOption);
+    }
     if (songSourceSelect) {
       const songOption = document.createElement('option');
       songOption.value = code;
@@ -748,9 +770,13 @@ async function loadPinnedTextLibrary() {
 async function syncSpeedToEvent() {
   if (!currentEvent) return;
   const speed = $('speed').value || 'balanced';
-  const res = await fetch(`/api/events/${currentEvent.id}/settings`, adminJsonOptions('POST', { speed }));
+  const sourceLang = $('currentSourceLang')?.value || currentEvent.sourceLang || 'ro';
+  const res = await fetch(`/api/events/${currentEvent.id}/settings`, adminJsonOptions('POST', { speed, sourceLang }));
   const data = await res.json();
-  if (data.ok) currentEvent = data.event;
+  if (data.ok) {
+    currentEvent = data.event;
+    if ($('currentSourceLang')) $('currentSourceLang').value = currentEvent.sourceLang || sourceLang;
+  }
 }
 
 function populateEventLinks() {
@@ -1523,6 +1549,10 @@ function startMeterLoop() {
     const db = 20 * Math.log10(Math.max(rms, 0.00001));
     const level = Math.max(0, Math.min(100, Math.round(((db + 60) / 60) * 100)));
     $('audioLevel').value = level;
+    audioState.currentLevel = level;
+    audioState.chunkPeakLevel = Math.max(audioState.chunkPeakLevel || 0, level);
+    audioState.chunkMinLevel = Math.min(Number.isFinite(audioState.chunkMinLevel) ? audioState.chunkMinLevel : 100, level);
+    if (level >= AUDIO_GATE_MIN_PEAK) audioState.chunkActiveFrames = (audioState.chunkActiveFrames || 0) + 1;
     audioState.meterFrame = requestAnimationFrame(draw);
   };
   draw();
@@ -1580,6 +1610,23 @@ async function postAudioChunk(blob) {
   if (!data.ok) throw new Error(data.error || 'Audio upload failed.');
 }
 
+function resetAudioGateStats() {
+  audioState.chunkPeakLevel = 0;
+  audioState.chunkMinLevel = 100;
+  audioState.chunkActiveFrames = 0;
+}
+
+function shouldUploadAudioChunk(blob, gateStats = {}) {
+  if (!blob || blob.size < 3500) return false;
+  const peak = Number(gateStats.peak || 0);
+  const min = Number.isFinite(gateStats.min) ? Number(gateStats.min) : 100;
+  const activeFrames = Number(gateStats.activeFrames || 0);
+  const dynamicRange = Math.max(0, peak - min);
+  return peak >= AUDIO_GATE_MIN_PEAK
+    && activeFrames >= AUDIO_GATE_MIN_ACTIVE_FRAMES
+    && (dynamicRange >= AUDIO_GATE_MIN_DYNAMIC_RANGE || peak >= AUDIO_GATE_STRONG_PEAK);
+}
+
 function enqueueAudioBlob(blob) {
   if (!blob || blob.size < 3500) return;
   audioState.uploadQueue.push(blob);
@@ -1615,18 +1662,29 @@ async function startTranslation() {
   const startRecorderCycle = () => {
     if (!audioState.running) return;
     audioState.chunks = [];
+    resetAudioGateStats();
     const recorder = new MediaRecorder(audioState.destination.stream, { mimeType, audioBitsPerSecond: 128000 });
     audioState.recorder = recorder;
     recorder.ondataavailable = (event) => { if (event.data && event.data.size > 0) audioState.chunks.push(event.data); };
     recorder.onstop = () => {
       const finalType = recorder.mimeType || mimeType || 'audio/webm';
       const blob = new Blob(audioState.chunks, { type: finalType });
+      const gateStats = {
+        peak: audioState.chunkPeakLevel,
+        min: audioState.chunkMinLevel,
+        activeFrames: audioState.chunkActiveFrames
+      };
       audioState.chunks = [];
       if (audioState.chunkTimer) clearTimeout(audioState.chunkTimer);
       audioState.chunkTimer = null;
       if (audioState.recorder === recorder) audioState.recorder = null;
       if (audioState.running) startRecorderCycle();
-      if (blob.size >= 3500) enqueueAudioBlob(blob);
+      if (shouldUploadAudioChunk(blob, gateStats)) {
+        enqueueAudioBlob(blob);
+      } else if (audioState.running && Date.now() - (audioState.lastGateStatusAt || 0) > 8000) {
+        audioState.lastGateStatusAt = Date.now();
+        setStatus('Listening. Quiet or steady noise skipped.');
+      }
     };
     recorder.start();
     audioState.chunkTimer = setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, 5200);
@@ -1914,6 +1972,10 @@ $('sendManualLiveBtn').addEventListener('click', () => sendManualText('auto'));
 $('sendManualDisplayBtn').addEventListener('click', () => sendManualText('manual'));
 $('saveManualLibraryBtn').addEventListener('click', savePinnedTextToLibrary);
 $('speed').addEventListener('change', syncSpeedToEvent);
+$('currentSourceLang')?.addEventListener('change', async () => {
+  await syncSpeedToEvent();
+  setStatus(`Input language set to ${langLabel(currentEvent?.sourceLang || 'ro')}.`);
+});
 $('openTranscriptTabBtn').addEventListener('click', () => switchTab('transcript'));
 $('manualText').addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' || e.shiftKey) return;
