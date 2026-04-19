@@ -1386,14 +1386,11 @@ progress::-moz-progress-bar {
 .display-theme-dark .unified-display-live,
 .display-theme-dark .display-single-panel,
 .display-theme-dark .song-stage {
-  background:
-    linear-gradient(180deg, rgba(2, 3, 5, 0.98), rgba(6, 8, 12, 0.98)),
-    radial-gradient(circle at top center, rgba(216, 176, 106, 0.14), transparent 30%),
-    radial-gradient(circle at bottom center, rgba(255, 244, 220, 0.06), transparent 36%);
-  border-color: rgba(255, 244, 220, 0.12);
+  background: #000;
+  border-color: rgba(255, 255, 255, 0.16);
   box-shadow:
-    0 28px 60px rgba(0, 0, 0, 0.44),
-    inset 0 1px 0 rgba(255, 244, 220, 0.04);
+    0 28px 60px rgba(0, 0, 0, 0.58),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
 .display-single-text,
@@ -1477,10 +1474,8 @@ progress::-moz-progress-bar {
 .display-theme-dark .display-single-text,
 .display-theme-dark .song-only-translation,
 .display-theme-dark .unified-display-text {
-  color: #fff8ec;
-  text-shadow:
-    0 8px 28px rgba(0, 0, 0, 0.58),
-    0 0 22px rgba(216, 176, 106, 0.08);
+  color: #fff !important;
+  text-shadow: none;
 }
 
 .unified-display-live[data-text-size="compact"] .unified-display-text,

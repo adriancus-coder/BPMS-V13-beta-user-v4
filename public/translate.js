@@ -95,6 +95,14 @@ function applyDisplaySettings() {
       wrap.dataset.screenStyle = state.screenStyle || 'focus';
       return;
     }
+    if (state.currentTheme === 'dark') {
+      wrap.style.backgroundImage = 'none';
+      wrap.style.backgroundSize = '';
+      wrap.style.backgroundPosition = '';
+      wrap.style.backgroundColor = '#000';
+      wrap.dataset.textSize = state.textSize || 'large';
+      wrap.dataset.screenStyle = state.screenStyle || 'focus';
+    } else
     if (state.customBackground) {
       const overlay = state.currentTheme === 'light'
         ? 'linear-gradient(rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0.45))'

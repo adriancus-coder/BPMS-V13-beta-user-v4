@@ -89,6 +89,12 @@ function switchTab(tabName) {
   activeTab = tabName;
   document.querySelectorAll('.nav-btn').forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === tabName));
   document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.toggle('active', panel.id === `tab-${tabName}`));
+  if (tabName === 'transcript') {
+    renderTranscriptList();
+    requestAnimationFrame(() => {
+      document.querySelector('#transcriptList .entry')?.scrollIntoView({ block: 'start' });
+    });
+  }
 }
 
 function relocateMainScreenControls() {
@@ -636,6 +642,7 @@ function closeInlineEditors() {
 
 function renderEntry(entry) {
   const list = $('transcriptList');
+  if (!list || !entry) return;
   const div = document.createElement('div');
   div.className = 'entry';
   div.dataset.entryId = entry.id;
@@ -663,6 +670,18 @@ function renderEntry(entry) {
   div.querySelector('.inline-close').addEventListener('click', (e) => { e.stopPropagation(); closeInlineEditors(); });
   div.querySelector('.inline-source').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveInlineSource(entry.id); } });
   list.prepend(div);
+}
+
+function renderTranscriptList() {
+  const list = $('transcriptList');
+  if (!list) return;
+  list.innerHTML = '';
+  const entries = Array.isArray(currentEvent?.transcripts) ? currentEvent.transcripts : [];
+  if (!entries.length) {
+    list.innerHTML = '<div class="muted">No transcript yet. Start live to capture the first lines.</div>';
+    return;
+  }
+  entries.forEach(renderEntry);
 }
 
 function updateEntry({ entryId, lang, text }) {
@@ -1384,8 +1403,7 @@ async function openEventById(eventId) {
   currentVolume = currentEvent.audioVolume;
   currentMuted = currentEvent.audioMuted;
   $('volumeRange').value = String(currentVolume);
-  $('transcriptList').innerHTML = '';
-  (currentEvent.transcripts || []).forEach(renderEntry);
+  renderTranscriptList();
   fillGlossaryLangs(currentEvent.targetLangs || []);
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
@@ -1824,8 +1842,7 @@ socket.on('joined_event', ({ event, role }) => {
   currentMuted = event.audioMuted;
   $('volumeRange').value = String(currentVolume);
   $('audioStateLabel').textContent = currentMuted ? 'Global audio off.' : 'Global audio active.';
-  $('transcriptList').innerHTML = '';
-  (event.transcripts || []).forEach(renderEntry);
+  renderTranscriptList();
   fillGlossaryLangs(currentEvent.targetLangs || []);
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
