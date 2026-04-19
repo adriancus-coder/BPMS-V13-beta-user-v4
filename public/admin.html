@@ -21,26 +21,10 @@
         <div class="muted">Move quickly between live control, transcript, events, Main Screen, and Song.</div>
       </div>
 
-      <div class="info-card soft-card permanent-qr-card">
-        <div class="section-head compact-head">
-          <div>
-            <div class="label">Permanent participant QR</div>
-            <div class="muted">Print once. People scan this QR and choose the live event.</div>
-          </div>
-        </div>
-        <input id="permanentParticipantLink" type="text" readonly>
-        <img id="permanentQrImage" class="qr permanent-qr" alt="Permanent participant QR code">
-        <div class="button-row compact-row">
-          <button id="copyPermanentParticipantBtn" class="btn btn-dark" type="button">Copy link</button>
-          <button id="emailPermanentParticipantBtn" class="btn btn-dark" type="button">Email</button>
-          <button id="downloadPermanentQrBtn" class="btn btn-dark" type="button">Download QR</button>
-        </div>
-      </div>
-
       <nav class="sidebar-nav">
-        <button class="nav-btn active" data-tab="dashboard" type="button">Live Control</button>
+        <button class="nav-btn active" data-tab="events" type="button">Events</button>
+        <button class="nav-btn" data-tab="dashboard" type="button">Live Control</button>
         <button class="nav-btn" data-tab="transcript" type="button">Transcript</button>
-        <button class="nav-btn" data-tab="events" type="button">Events</button>
         <button class="nav-btn" data-tab="mainscreen" type="button">Main Screen</button>
         <button class="nav-btn" data-tab="song" type="button">Song</button>
         <button class="nav-btn" data-tab="glossary" type="button">Glossary</button>
@@ -56,6 +40,21 @@
           <span class="screen-link-title">Participant Phone View</span>
           <span class="screen-link-copy">Mobile listening view with audio and recent history.</span>
         </a>
+        <div class="info-card soft-card permanent-qr-card">
+          <div class="section-head compact-head">
+            <div>
+              <div class="label">Permanent participant QR</div>
+              <div class="muted">Print once. People scan this QR and choose the live event.</div>
+            </div>
+          </div>
+          <input id="permanentParticipantLink" type="text" readonly>
+          <img id="permanentQrImage" class="qr permanent-qr" alt="Permanent participant QR code">
+          <div class="button-row compact-row">
+            <button id="copyPermanentParticipantBtn" class="btn btn-dark" type="button">Copy link</button>
+            <button id="emailPermanentParticipantBtn" class="btn btn-dark" type="button">Email</button>
+            <button id="downloadPermanentQrBtn" class="btn btn-dark" type="button">Download QR</button>
+          </div>
+        </div>
       </div>
     </aside>
 
@@ -84,7 +83,7 @@
         </div>
       </section>
 
-      <section id="tab-dashboard" class="tab-panel active">
+      <section id="tab-dashboard" class="tab-panel">
         <div class="cards-grid three metrics-grid">
           <div class="metric-card panel glass-panel">
             <div class="metric-label">Partial transcript</div>
@@ -180,7 +179,7 @@
         </div>
       </section>
 
-      <section id="tab-events" class="tab-panel">
+      <section id="tab-events" class="tab-panel active">
         <div class="cards-grid two">
           <div class="panel glass-panel section-stack">
             <div class="section-head">
@@ -219,12 +218,9 @@
 
           <div class="panel glass-panel section-stack access-shell">
             <div class="section-head">
-              <h2>Access and Sharing</h2>
-              <div class="live-chip">Fast launch</div>
+              <h2>Participant Phone View</h2>
+              <div class="live-chip">Permanent QR</div>
             </div>
-            <div class="meta-row access-code-row"><span>Admin code</span><strong id="adminCode">-</strong></div>
-            <div class="meta-row access-code-row"><span>Screen operator code</span><strong id="accessScreenOperatorCode">-</strong></div>
-
             <div class="link-stack">
               <label>Participant link (permanent)</label>
               <div class="link-row">
@@ -233,7 +229,23 @@
                 <button id="emailParticipantBtn" class="btn btn-dark" type="button">Email</button>
               </div>
             </div>
+            <img id="qrImage" class="qr" alt="QR code">
+            <div class="muted">Same QR every time. Participants scan it and choose the live event.</div>
+            <div class="button-row compact-row">
+              <button id="copyQrBtn" class="btn btn-dark">Copy QR</button>
+              <button id="downloadQrBtn" class="btn btn-dark">Download QR</button>
+            </div>
+          </div>
+        </div>
 
+        <div class="cards-grid two">
+          <div class="panel glass-panel section-stack access-shell">
+            <div class="section-head">
+              <h2>Event Access</h2>
+              <div class="live-chip">Fast launch</div>
+            </div>
+            <div class="meta-row access-code-row"><span>Admin code</span><strong id="adminCode">-</strong></div>
+            <div class="meta-row access-code-row"><span>Screen operator code</span><strong id="accessScreenOperatorCode">-</strong></div>
             <div class="link-stack">
               <label>Main screen link</label>
               <div class="link-row">
@@ -251,16 +263,54 @@
                 <button id="emailAccessRemoteBtn" class="btn btn-dark" type="button">Email</button>
               </div>
             </div>
-
             <div class="button-row">
               <button id="setActiveEventBtn" class="btn btn-primary">Set live event</button>
             </div>
+          </div>
 
-            <img id="qrImage" class="qr" alt="QR code">
-            <div class="muted">Same QR every time. Participants choose the live event after scanning.</div>
-            <div class="button-row compact-row">
-              <button id="copyQrBtn" class="btn btn-dark">Copy QR</button>
-              <button id="downloadQrBtn" class="btn btn-dark">Download QR</button>
+          <div id="eventOperatorPanel" class="panel glass-panel section-stack">
+            <div class="section-head">
+              <h2>Operator Roles</h2>
+              <div class="live-chip">After event creation</div>
+            </div>
+            <div class="info-card soft-card">
+              <div class="label">Main Screen Operator</div>
+              <div class="muted">Legacy fallback link with full projector and song controls.</div>
+              <div class="meta-row access-code-row"><span>Operator code</span><strong id="screenOperatorCode">-</strong></div>
+              <div class="link-stack">
+                <label>Remote control link</label>
+                <div class="link-row">
+                  <input id="remoteControlLink" type="text" readonly>
+                  <button id="copyRemoteControlBtn" class="btn btn-dark" type="button">Copy</button>
+                </div>
+              </div>
+              <div class="button-row compact-row">
+                <button id="openRemoteControlBtn" class="btn btn-primary" type="button">Open remote control</button>
+              </div>
+            </div>
+            <div class="info-card soft-card">
+              <div class="label">Create remote operator</div>
+              <div class="split-2 compact-library-row">
+                <div>
+                  <label>Name</label>
+                  <input id="remoteOperatorName" type="text" placeholder="Projection operator">
+                </div>
+                <div>
+                  <label>Access profile</label>
+                  <select id="remoteOperatorProfile">
+                    <option value="main_screen">Main Screen only</option>
+                    <option value="song_only">Song only</option>
+                    <option value="main_and_song">Main Screen + Song</option>
+                    <option value="full" selected>Full operator</option>
+                  </select>
+                </div>
+              </div>
+              <div class="button-row compact-row">
+                <button id="createRemoteOperatorBtn" class="btn btn-dark" type="button">Create operator</button>
+              </div>
+              <div id="remoteOperatorsList" class="history-list">
+                <div class="muted">No extra operators yet.</div>
+              </div>
             </div>
           </div>
         </div>
@@ -311,51 +361,6 @@
             </div>
           </div>
 
-          <div class="panel glass-panel section-stack">
-            <div class="section-head">
-              <h2>Operator Roles</h2>
-              <div class="live-chip">Safer access</div>
-            </div>
-            <div class="info-card soft-card">
-              <div class="label">Main Screen Operator</div>
-              <div class="muted">Legacy fallback link with full projector and song controls.</div>
-              <div class="meta-row access-code-row"><span>Operator code</span><strong id="screenOperatorCode">-</strong></div>
-              <div class="link-stack">
-                <label>Remote control link</label>
-                <div class="link-row">
-                  <input id="remoteControlLink" type="text" readonly>
-                  <button id="copyRemoteControlBtn" class="btn btn-dark" type="button">Copy</button>
-                </div>
-              </div>
-              <div class="button-row compact-row">
-                <button id="openRemoteControlBtn" class="btn btn-primary" type="button">Open remote control</button>
-              </div>
-            </div>
-            <div class="info-card soft-card">
-              <div class="label">Create remote operator</div>
-              <div class="split-2 compact-library-row">
-                <div>
-                  <label>Name</label>
-                  <input id="remoteOperatorName" type="text" placeholder="Projection operator">
-                </div>
-                <div>
-                  <label>Access profile</label>
-                  <select id="remoteOperatorProfile">
-                    <option value="main_screen">Main Screen only</option>
-                    <option value="song_only">Song only</option>
-                    <option value="main_and_song">Main Screen + Song</option>
-                    <option value="full" selected>Full operator</option>
-                  </select>
-                </div>
-              </div>
-              <div class="button-row compact-row">
-                <button id="createRemoteOperatorBtn" class="btn btn-dark" type="button">Create operator</button>
-              </div>
-              <div id="remoteOperatorsList" class="history-list">
-                <div class="muted">No extra operators yet.</div>
-              </div>
-            </div>
-          </div>
         </div>
       </section>
 

@@ -10,7 +10,7 @@ let currentVolume = 70;
 let currentMuted = false;
 let selectedEntryId = null;
 let sourceEditLock = false;
-let activeTab = 'dashboard';
+let activeTab = 'events';
 let lastManualEnterAt = 0;
 let screenWakeLock = null;
 window.isRecognitionRunning = false;
@@ -1468,7 +1468,7 @@ async function openEventById(eventId) {
   socket.emit('join_event', { eventId: currentEvent.id, role: 'admin', code: currentEvent.adminCode });
   await refreshEventList();
   setStatus(`Opened: ${currentEvent.name}.`);
-  switchTab('dashboard');
+  switchTab('events');
 }
 
 async function createEvent() {
@@ -1498,7 +1498,11 @@ async function createEvent() {
   if ($('eventModePreset').value === 'song') await setEventMode('song');
   await refreshEventList();
   setStatus('Event created.');
-  switchTab('dashboard');
+  switchTab('events');
+  setTimeout(() => {
+    $('eventOperatorPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    $('remoteOperatorName')?.focus();
+  }, 0);
 }
 
 async function setEventMode(mode) {
