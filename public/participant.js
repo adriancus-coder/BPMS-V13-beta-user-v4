@@ -2,6 +2,8 @@ const socket = io();
 const $ = (id) => document.getElementById(id);
 let availableLanguages = {};
 let participantWakeLock = null;
+const LIVE_ENTRY_MIN_DISPLAY_MS = 2600;
+const LIVE_ENTRY_MAX_QUEUE = 4;
 
 const voiceLocales = {
   ro: 'ro-RO',
@@ -51,6 +53,10 @@ const state = {
   currentMode: 'live',
   currentSongState: null,
   lastLiveEntryId: null,
+  visibleLiveEntryId: null,
+  liveEntryShownAt: 0,
+  liveEntryQueue: [],
+  liveEntryTimer: null,
   lastSpokenEntryId: null,
   localAudioEnabled: true,
   serverAudioMuted: false,
@@ -137,6 +143,10 @@ function getLatestEntry() {
   return entries.length ? entries[entries.length - 1] : null;
 }
 
+function getVisibleLiveEntry() {
+  return getEntryById(state.visibleLiveEntryId) || getLatestEntry();
+}
+
 function getTextForEntry(entry) {
   return entry?.translations?.[state.currentLanguage] || entry?.original || '';
 }
@@ -154,11 +164,13 @@ function getSongTextForCurrentLanguage(songState) {
 function getHistoryEntries() {
   const entries = sortEntries(state.currentEvent?.transcripts || []);
   if (entries.length <= 1) return [];
+  const visibleIndex = Math.max(0, entries.findIndex((entry) => entry.id === state.visibleLiveEntryId));
+  const endIndex = visibleIndex >= 0 ? visibleIndex - 1 : entries.length - 2;
 
   const result = [];
   let totalChars = 0;
 
-  for (let i = entries.length - 2; i >= 0; i -= 1) {
+  for (let i = endIndex; i >= 0; i -= 1) {
     const entry = entries[i];
     const text = String(getTextForEntry(entry) || '').trim();
     if (!text) continue;
@@ -190,6 +202,7 @@ function detectPreferredSupportedLanguage(available = []) {
 
 function syncLanguageOptions(event) {
   const select = $('languageSelect');
+  const previousLanguage = state.currentLanguage || select.value;
   const available = Array.from(new Set([
     ...(event?.targetLangs || []),
     (event?.mode === 'song' ? (event?.songState?.sourceLang || '') : '')
@@ -204,6 +217,8 @@ function syncLanguageOptions(event) {
   if (!state.languageInitialized) {
     select.value = detectPreferredSupportedLanguage(available);
     state.languageInitialized = true;
+  } else if (available.includes(previousLanguage)) {
+    select.value = previousLanguage;
   }
   if (!available.includes(select.value)) select.value = available[0] || 'en';
   state.currentLanguage = select.value;
@@ -325,15 +340,51 @@ function renderLiveView({ announce = false } = {}) {
     updateTopMeta();
     return;
   }
-  const latestEntry = getLatestEntry();
-  state.lastLiveEntryId = latestEntry?.id || null;
-  $('lastText').textContent = latestEntry ? getTextForEntry(latestEntry) : 'Waiting for translation...';
+  const visibleEntry = getVisibleLiveEntry();
+  state.lastLiveEntryId = visibleEntry?.id || null;
+  $('lastText').textContent = visibleEntry ? getTextForEntry(visibleEntry) : 'Waiting for translation...';
   renderHistory();
   updateTopMeta();
-  if (announce && latestEntry && latestEntry.id !== state.lastSpokenEntryId) {
-    state.lastSpokenEntryId = latestEntry.id;
-    speakLatestEntry(latestEntry);
+  if (announce && visibleEntry && visibleEntry.id !== state.lastSpokenEntryId) {
+    state.lastSpokenEntryId = visibleEntry.id;
+    speakLatestEntry(visibleEntry);
   }
+}
+
+function showLiveEntry(entry, { announce = false } = {}) {
+  if (!entry) return;
+  state.visibleLiveEntryId = entry.id;
+  state.liveEntryShownAt = Date.now();
+  renderLiveView({ announce });
+}
+
+function scheduleNextLiveEntry() {
+  if (state.liveEntryTimer) clearTimeout(state.liveEntryTimer);
+  if (state.currentMode === 'song' || !state.liveEntryQueue.length) return;
+
+  const elapsed = Date.now() - (state.liveEntryShownAt || 0);
+  const waitMs = Math.max(0, LIVE_ENTRY_MIN_DISPLAY_MS - elapsed);
+  state.liveEntryTimer = setTimeout(() => {
+    state.liveEntryTimer = null;
+    const nextEntry = state.liveEntryQueue.shift();
+    showLiveEntry(nextEntry, { announce: true });
+    scheduleNextLiveEntry();
+  }, waitMs);
+}
+
+function enqueueLiveEntry(entry) {
+  if (!entry) return;
+  if (state.currentMode === 'song') return;
+  if (!state.visibleLiveEntryId) {
+    showLiveEntry(entry, { announce: true });
+    return;
+  }
+  if (entry.id === state.visibleLiveEntryId || state.liveEntryQueue.some((item) => item.id === entry.id)) return;
+  state.liveEntryQueue.push(entry);
+  if (state.liveEntryQueue.length > LIVE_ENTRY_MAX_QUEUE) {
+    state.liveEntryQueue = state.liveEntryQueue.slice(-LIVE_ENTRY_MAX_QUEUE);
+  }
+  scheduleNextLiveEntry();
 }
 
 function updateEntryInState(payload) {
@@ -378,9 +429,14 @@ socket.on('joined_event', ({ event, role }) => {
   state.currentMode = event.mode || 'live';
   state.currentSongState = event.songState || null;
   state.serverAudioMuted = !!event.audioMuted;
+  state.liveEntryQueue = [];
+  if (state.liveEntryTimer) clearTimeout(state.liveEntryTimer);
+  state.liveEntryTimer = null;
   const chooser = $('participantEventChooser');
   if (chooser) chooser.hidden = true;
   syncLanguageOptions(event);
+  state.visibleLiveEntryId = getLatestEntry()?.id || null;
+  state.liveEntryShownAt = Date.now();
   renderLiveView({ announce: false });
   setParticipantUpdating(false);
   setStatus(state.serverAudioMuted ? 'Audio stopped by admin.' : 'Connected.');
@@ -392,7 +448,7 @@ socket.on('transcript_entry', (entry) => {
   state.currentEvent.transcripts = state.currentEvent.transcripts || [];
   if (!getEntryById(entry.id)) state.currentEvent.transcripts.push(entry);
   setParticipantUpdating(false);
-  renderLiveView({ announce: true });
+  enqueueLiveEntry(entry);
 });
 
 socket.on('transcript_source_updated', (payload) => {
@@ -425,6 +481,10 @@ socket.on('active_event_changed', async () => {
     state.currentEvent = null;
     state.currentMode = 'live';
     state.currentSongState = null;
+    state.visibleLiveEntryId = null;
+    state.liveEntryQueue = [];
+    if (state.liveEntryTimer) clearTimeout(state.liveEntryTimer);
+    state.liveEntryTimer = null;
     $('participantEventName').textContent = 'Choose a live event';
     $('participantEventMeta').textContent = 'The previous event is no longer live.';
     $('lastText').textContent = 'Waiting for live event...';
@@ -439,6 +499,9 @@ socket.on('mode_changed', ({ mode }) => {
   if (state.currentEvent) state.currentEvent.mode = state.currentMode;
   syncLanguageOptions({ ...state.currentEvent, mode: state.currentMode, songState: state.currentSongState });
   if (mode === 'song') {
+    state.liveEntryQueue = [];
+    if (state.liveEntryTimer) clearTimeout(state.liveEntryTimer);
+    state.liveEntryTimer = null;
     setStatus('Song active on public screen.');
   } else {
     setStatus(state.serverAudioMuted ? 'Audio stopped by admin.' : 'Connected.');
@@ -449,6 +512,9 @@ socket.on('mode_changed', ({ mode }) => {
 socket.on('song_state', (songState) => {
   state.currentMode = 'song';
   state.currentSongState = songState;
+  state.liveEntryQueue = [];
+  if (state.liveEntryTimer) clearTimeout(state.liveEntryTimer);
+  state.liveEntryTimer = null;
   syncLanguageOptions({ ...state.currentEvent, mode: 'song', songState });
   renderLiveView({ announce: false });
 });
@@ -457,6 +523,8 @@ socket.on('song_clear', () => {
   state.currentMode = 'live';
   state.currentSongState = null;
   syncLanguageOptions({ ...state.currentEvent, mode: 'live', songState: null });
+  state.visibleLiveEntryId = getLatestEntry()?.id || null;
+  state.liveEntryShownAt = Date.now();
   renderLiveView({ announce: false });
 });
 
