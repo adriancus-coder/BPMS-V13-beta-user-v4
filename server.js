@@ -1358,10 +1358,10 @@ async function transcribeAudioFile(filePath, event) {
     response_format: 'json',
     prompt:
       event.sourceLang === 'no'
-        ? 'The audio is a Christian sermon in Norwegian. Keep the transcript in Norwegian. Use natural punctuation. Common terms may include Jesus, Kristus, Herren, Den Hellige And, menighet, evangeliet, apostel, nade, kjaerlighet, synd, frelse.'
-        : 'The audio is a live sermon. Keep names and punctuation natural.'
+        ? 'The audio is a Christian sermon in Norwegian. Keep the transcript in Norwegian. Use natural punctuation. Common terms may include Jesus, Kristus, Herren, Den Hellige And, menighet, evangeliet, apostel, nade, kjaerlighet, synd, frelse. If the audio is silence or background noise, return an empty transcript.'
+        : 'The audio is a live sermon. Keep names and punctuation natural. If the audio is silence or background noise, return an empty transcript.'
   };
-  if (event.sourceLang !== 'no') request.language = event.sourceLang || 'ro';
+  request.language = event.sourceLang || 'ro';
   const result = await client.audio.transcriptions.create(request);
   return String(result?.text || '').trim();
 }
