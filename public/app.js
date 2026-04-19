@@ -849,6 +849,28 @@ function renderSongStateLegacy(songState) {
   $('songBlocksList').innerHTML = '<div class="muted">Use Save in library or Send first verse live.</div>';
 }
 
+function renderSongJumpSelect(blocks = [], labels = [], currentIndex = -1) {
+  const select = $('songJumpSelect');
+  if (!select) return;
+  if (!blocks.length) {
+    select.innerHTML = '<option value="">No song sections yet</option>';
+    select.disabled = true;
+    if ($('songJumpBtn')) $('songJumpBtn').disabled = true;
+    return;
+  }
+  select.disabled = false;
+  if ($('songJumpBtn')) $('songJumpBtn').disabled = false;
+  select.innerHTML = blocks.map((block, index) => {
+    const label = labels[index] || `Verse ${index + 1}`;
+    const preview = String(block || '').split('\n').find(Boolean) || '';
+    const optionText = `${label}${preview ? ` - ${preview.slice(0, 48)}` : ''}`;
+    return `<option value="${index}">${escapeHtml(optionText)}</option>`;
+  }).join('');
+  if (Number.isInteger(currentIndex) && currentIndex >= 0 && currentIndex < blocks.length) {
+    select.value = String(currentIndex);
+  }
+}
+
 
 
 function renderSongState(songState) {
@@ -867,6 +889,7 @@ function renderSongState(songState) {
 
   summaryEl.textContent = `Saved: ${libraryCount} · History: ${historyCount} · Language: ${langLabel(sourceLang)}`;
   previewEl.textContent = activeBlock || currentEvent?.displayState?.manualSource || 'Song text will appear here.';
+  renderSongJumpSelect(blocks, labels, currentIndex);
 
   if (!blocks.length) {
     blocksEl.innerHTML = '<div class="muted">Use Save in library or Send first verse live.</div>';
@@ -1054,6 +1077,13 @@ async function showSongBlock(index) {
   currentEvent.mode = 'song';
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
+}
+
+async function showSelectedSongSection() {
+  const index = Number($('songJumpSelect')?.value);
+  if (!Number.isInteger(index)) return;
+  await showSongBlock(index);
+  setStatus('Selected song section sent live.');
 }
 
 async function goToNextSongBlock() {
@@ -2082,7 +2112,7 @@ $('openRemoteControlBtn').addEventListener('click', () => {
 $('createRemoteOperatorBtn')?.addEventListener('click', async () => {
   if (!currentEvent) return alert('Open or create an event first.');
   const name = $('remoteOperatorName')?.value.trim() || 'Remote operator';
-  const profile = $('remoteOperatorProfile')?.value || 'main_and_song';
+  const profile = $('remoteOperatorProfile')?.value || 'full';
   try {
     const res = await fetch(`/api/events/${currentEvent.id}/remote-operators`, adminJsonOptions('POST', { name, profile }));
     const data = await res.json();
@@ -2090,7 +2120,7 @@ $('createRemoteOperatorBtn')?.addEventListener('click', async () => {
     currentEvent.remoteOperators = data.remoteOperators || [];
     renderRemoteOperators(currentEvent.remoteOperators);
     $('remoteOperatorName').value = '';
-    $('remoteOperatorProfile').value = 'main_and_song';
+    $('remoteOperatorProfile').value = 'full';
     setStatus(`Remote operator created for ${name}.`);
   } catch (err) {
     console.error(err);
@@ -2108,6 +2138,8 @@ $('saveSongBtn').addEventListener('click', saveSongToLibrary);
 $('sendSongBtn').addEventListener('click', sendSongToLive);
 $('songPrevBtn').addEventListener('click', goToPrevSongBlock);
 $('songNextBtn').addEventListener('click', goToNextSongBlock);
+$('songJumpBtn')?.addEventListener('click', showSelectedSongSection);
+$('songJumpSelect')?.addEventListener('change', showSelectedSongSection);
 $('blankMainScreenBtn').addEventListener('click', blankMainScreen);
 $('displayRestoreBtn').addEventListener('click', restoreLastDisplayState);
 $('displayAutoBtn').addEventListener('click', () => setDisplayMode('auto'));

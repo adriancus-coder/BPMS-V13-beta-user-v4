@@ -343,8 +343,8 @@
                   <select id="remoteOperatorProfile">
                     <option value="main_screen">Main Screen only</option>
                     <option value="song_only">Song only</option>
-                    <option value="main_and_song" selected>Main Screen + Song</option>
-                    <option value="full">Full operator</option>
+                    <option value="main_and_song">Main Screen + Song</option>
+                    <option value="full" selected>Full operator</option>
                   </select>
                 </div>
               </div>
@@ -520,6 +520,15 @@
               <button id="songPrevBtn" class="btn btn-dark" type="button">Previous verse</button>
               <button id="songNextBtn" class="btn btn-dark" type="button">Next verse</button>
               <button id="backToLiveTextBtn" class="btn btn-primary" type="button">Back to live text</button>
+            </div>
+            <div class="split-2 compact-library-row">
+              <div>
+                <label>Jump to section</label>
+                <select id="songJumpSelect"></select>
+              </div>
+              <div class="preset-save-wrap">
+                <button id="songJumpBtn" class="btn btn-primary" type="button">Show selected section</button>
+              </div>
             </div>
             <div class="info-card soft-card">
               <div class="label">Song preview</div>

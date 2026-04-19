@@ -104,6 +104,33 @@ function renderRemoteSongLibrary() {
   `).join('');
 }
 
+function renderRemoteSongJumpSelect() {
+  const select = $('remoteSongJumpSelect');
+  const button = $('remoteSongJumpBtn');
+  if (!select) return;
+  const songState = state.currentEvent?.songState || {};
+  const blocks = Array.isArray(songState.blocks) ? songState.blocks : [];
+  const labels = Array.isArray(songState.blockLabels) ? songState.blockLabels : [];
+  const currentIndex = Number.isInteger(songState.currentIndex) ? songState.currentIndex : -1;
+  if (!blocks.length) {
+    select.innerHTML = '<option value="">No song sections yet</option>';
+    select.disabled = true;
+    if (button) button.disabled = true;
+    return;
+  }
+  select.disabled = false;
+  if (button) button.disabled = false;
+  select.innerHTML = blocks.map((block, index) => {
+    const label = labels[index] || `Verse ${index + 1}`;
+    const preview = String(block || '').split('\n').find(Boolean) || '';
+    const optionText = `${label}${preview ? ` - ${preview.slice(0, 48)}` : ''}`;
+    return `<option value="${index}">${escapeHtml(optionText)}</option>`;
+  }).join('');
+  if (currentIndex >= 0 && currentIndex < blocks.length) {
+    select.value = String(currentIndex);
+  }
+}
+
 function refreshPreviewFrames() {
   const mainFrame = $('remoteMainPreviewFrame');
   const participantFrame = $('remoteParticipantPreviewFrame');
@@ -258,6 +285,7 @@ function refreshRemoteUi() {
   updateRemoteGlossaryMode();
   syncGlossaryToggle();
   refreshPreviewFrames();
+  renderRemoteSongJumpSelect();
   renderRemoteSongLibrary();
   if (mainScreenAllowed) {
     renderQuickLanguages();
@@ -275,6 +303,9 @@ async function post(path, payload = {}) {
   }
   if (data.presets && state.currentEvent) {
     state.currentEvent.displayPresets = data.presets;
+  }
+  if (data.songState && state.currentEvent) {
+    state.currentEvent.songState = data.songState;
   }
   refreshRemoteUi();
   return data;
@@ -358,6 +389,19 @@ $('remotePrevSongBtn').addEventListener('click', async () => {
 });
 $('remoteNextSongBtn').addEventListener('click', async () => {
   try { await post(`/api/events/${state.eventId}/song/next`); setStatus('Moved to next verse.'); } catch (err) { setStatus(err.message); }
+});
+$('remoteSongJumpBtn').addEventListener('click', async () => {
+  const index = Number($('remoteSongJumpSelect')?.value);
+  if (!Number.isInteger(index)) return;
+  try {
+    await post(`/api/events/${state.eventId}/song/show/${index}`);
+    setStatus('Selected song section sent live.');
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+$('remoteSongJumpSelect').addEventListener('change', async () => {
+  $('remoteSongJumpBtn').click();
 });
 
 $('remoteQuickLanguages').addEventListener('click', async (e) => {
