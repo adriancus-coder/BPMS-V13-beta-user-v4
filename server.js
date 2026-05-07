@@ -1684,32 +1684,6 @@ function shouldFlushBufferedText(text, options = {}) {
   return false;
 }
 
-// TASK 37: Tracker pentru text deja trimis prin partial flush
-// Previne dubluri când Azure trimite și `recognized` după un partial flush
-const partialFlushTracker = new Map(); // eventId -> { lastFlushedText, timestamp }
-
-function isPartialFlushDuplicate(eventId, newText, windowMs = 3000) {
-  const tracker = partialFlushTracker.get(eventId);
-  if (!tracker) return false;
-  if (Date.now() - tracker.timestamp > windowMs) {
-    partialFlushTracker.delete(eventId);
-    return false;
-  }
-  // Dacă noul text începe cu textul deja flush-uit, e probabil duplicat
-  const norm = (s) => sanitizeTranscriptText(s || '').toLowerCase().trim();
-  const old = norm(tracker.lastFlushedText);
-  const fresh = norm(newText);
-  if (!old || !fresh) return false;
-  return fresh.startsWith(old) || old.startsWith(fresh) || fresh.includes(old.slice(0, 40));
-}
-
-function markPartialFlushed(eventId, text) {
-  partialFlushTracker.set(eventId, {
-    lastFlushedText: text,
-    timestamp: Date.now()
-  });
-}
-
 function sanitizeRemoteOperator(operator, includeCode = false) {
   if (!operator) return null;
   return {
@@ -3148,10 +3122,6 @@ function closeAzureSpeechSession(socketId) {
   const session = azureSpeechSessions.get(socketId);
   if (!session) return;
   azureSpeechSessions.delete(socketId);
-  // TASK 37: Cleanup partial flush tracker pentru acest event
-  if (session.eventId) {
-    partialFlushTracker.delete(session.eventId);
-  }
   try { session.pushStream?.close(); } catch (_) {}
   try {
     session.recognizer?.stopContinuousRecognitionAsync(
@@ -3216,67 +3186,14 @@ function startAzureSpeechSession(socket, event) {
   const audioConfig = sdk.AudioConfig.fromStreamInput(pushStream);
   const recognizer = new sdk.SpeechRecognizer(speechConfig, audioConfig);
 
-  // Tracker pentru cât de mult din partial-ul curent a fost deja trimis
-  let lastPartialLength = 0;
-
   recognizer.recognizing = (_, result) => {
     const text = sanitizeTranscriptText(result?.result?.text || '');
-    if (!text) return;
-
-    io.to(`event:${event.id}:admins`).emit('partial_transcript', { text });
-
-    // TASK 37: Flush proactiv pe partial dacă text e lung
-    // Asta e MARE diferență față de comportamentul vechi care aștepta `recognized`
-    const words = countWords(text);
-
-    // Trigger condition: 8+ cuvinte ȘI nu e duplicat
-    if (words >= AZURE_LIVE_TEXT_MAX_WORDS) {
-      // Verific cu tracker dacă deja am flush-uit text similar
-      if (!isPartialFlushDuplicate(event.id, text)) {
-        // Calculez delta - doar partea nouă (după ce am flush-uit ultima oară)
-        const tracker = partialFlushTracker.get(event.id);
-        let deltaText = text;
-        if (tracker && tracker.lastFlushedText) {
-          // Dacă noul text începe exact cu vechiul, ia doar partea nouă
-          const oldLen = tracker.lastFlushedText.length;
-          if (text.length > oldLen && text.startsWith(tracker.lastFlushedText)) {
-            deltaText = text.slice(oldLen).trim();
-          }
-        }
-
-        const deltaWords = countWords(deltaText);
-        // Trimite delta DOAR dacă are minim 3 cuvinte (nu propoziții fragmentare)
-        if (deltaWords >= AZURE_LIVE_TEXT_MIN_WORDS) {
-          markPartialFlushed(event.id, text);
-          queueSpeechText(event.id, deltaText, effectiveSourceLang, 'azure_sdk');
-        }
-      }
-    }
+    if (text) io.to(`event:${event.id}:admins`).emit('partial_transcript', { text });
   };
   recognizer.recognized = (_, result) => {
     if (result?.result?.reason !== sdk.ResultReason.RecognizedSpeech) return;
     const text = sanitizeTranscriptText(result?.result?.text || '');
-    if (!text) return;
-
-    // TASK 37: Verific dacă acest text final a fost deja flush-uit prin partial
-    if (isPartialFlushDuplicate(event.id, text)) {
-      // Dar poate textul final are info ÎN PLUS față de partial
-      const tracker = partialFlushTracker.get(event.id);
-      if (tracker && text.length > tracker.lastFlushedText.length && text.startsWith(tracker.lastFlushedText)) {
-        const deltaText = text.slice(tracker.lastFlushedText.length).trim();
-        const deltaWords = countWords(deltaText);
-        if (deltaWords >= AZURE_LIVE_TEXT_MIN_WORDS) {
-          markPartialFlushed(event.id, text);
-          queueSpeechText(event.id, deltaText, effectiveSourceLang, 'azure_sdk');
-        }
-      }
-      // Altfel, e duplicat complet - skip
-      return;
-    }
-
-    // Text nou (nu duplicat) - flush normal
-    markPartialFlushed(event.id, text);
-    queueSpeechText(event.id, text, effectiveSourceLang, 'azure_sdk');
+    if (text) queueSpeechText(event.id, text, effectiveSourceLang, 'azure_sdk');
   };
   recognizer.canceled = (_, result) => {
     const details = String(result?.errorDetails || result?.reason || 'unknown');
