@@ -5259,3 +5259,55 @@ body.participant-preview-mode .participant-event-chooser {
     flex: 1 1 100%;
   }
 }
+
+/* Bible Mode card (admin) */
+.bible-mode-card.bible-mode-active {
+  border: 2px solid #d4a574;
+  background: rgba(212, 165, 116, 0.08);
+}
+.bible-mode-card.bible-mode-active .label {
+  color: #d4a574;
+}
+.bible-mode-hint {
+  margin-top: 8px;
+  font-size: 0.85em;
+  color: #888;
+  line-height: 1.4;
+}
+#bibleModeBtn.bible-active {
+  background: #d4a574;
+  color: #1a1a1a;
+  font-weight: 600;
+}
+
+/* Bible Reading overlay (participant) */
+.participant-bible-reading {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 15, 10, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9000;
+  padding: 24px;
+}
+.participant-bible-reading[hidden] { display: none; }
+.participant-bible-reading-card {
+  text-align: center;
+  color: #fffaf0;
+  max-width: 480px;
+}
+.participant-bible-reading-icon {
+  font-size: 5rem;
+  margin-bottom: 24px;
+}
+.participant-bible-reading-card h2 {
+  font-size: 1.8rem;
+  margin: 0 0 12px;
+  color: #d4a574;
+}
+.participant-bible-reading-card p {
+  font-size: 1.1rem;
+  line-height: 1.5;
+  color: #e8d5b7;
+}

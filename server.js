@@ -1765,6 +1765,7 @@ function normalizeEvent(event, options = {}) {
     mode: event.mode || 'live',
     transcriptionPaused: !!event.transcriptionPaused,
     transcriptionOnAir: !!event.transcriptionOnAir,
+    bibleMode: !!event.bibleMode,
     songState: event.songState || defaultSongState(),
     latestDisplayEntry: cloneDisplayEntry(event.latestDisplayEntry),
     displayState: event.displayState || defaultDisplayState(),
@@ -2327,6 +2328,7 @@ async function createEvent({ name, speed, sourceLang, targetLangs, baseUrl, sche
     mode: 'live',
     transcriptionPaused: false,
     transcriptionOnAir: false,
+    bibleMode: false,
     pushSubscriptions: [],
     songState: defaultSongState(),
     latestDisplayEntry: null,
@@ -3225,6 +3227,10 @@ function startAzureSpeechSession(socket, event) {
 
     io.to(`event:${event.id}:admins`).emit('partial_transcript', { text });
 
+    // BIBLE MODE: skip translation (recognition continues for transcript verification)
+    const currentEvent = db.events[event.id];
+    if (currentEvent?.bibleMode) return;
+
     // TASK 37: Flush proactiv pe partial dacă text e lung
     // Asta e MARE diferență față de comportamentul vechi care aștepta `recognized`
     const words = countWords(text);
@@ -3257,6 +3263,13 @@ function startAzureSpeechSession(socket, event) {
     if (result?.result?.reason !== sdk.ResultReason.RecognizedSpeech) return;
     const text = sanitizeTranscriptText(result?.result?.text || '');
     if (!text) return;
+
+    // BIBLE MODE: skip translation (recognition continues for transcript verification)
+    const currentEventBible = db.events[event.id];
+    if (currentEventBible?.bibleMode) {
+      logger.info('[BIBLE MODE] Skipping translation:', text.slice(0, 60));
+      return;
+    }
 
     // TASK 37: Verific dacă acest text final a fost deja flush-uit prin partial
     if (isPartialFlushDuplicate(event.id, text)) {

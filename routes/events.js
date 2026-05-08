@@ -1122,6 +1122,54 @@ function registerEventRoutes(app, ctx) {
     res.json({ ok: true, displayState: event.displayState });
   });
 
+  app.post('/api/events/:id/bible-mode', (req, res) => {
+    const event = db.events[req.params.id];
+    if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
+    if (!requireEventRole(req, res, event, ['admin'])) return;
+    if (!requireEventPermission(req, res, 'main_screen')) return;
+    ensureEventUiState(event);
+
+    const enabled = !!req.body.enabled;
+    const wasEnabled = !!event.bibleMode;
+
+    event.bibleMode = enabled;
+
+    if (enabled && !wasEnabled) {
+      // Activating: snapshot current display, force black screen
+      rememberDisplayState(event);
+      event.displayState.blackScreen = true;
+      event.displayState.updatedAt = new Date().toISOString();
+    } else if (!enabled && wasEnabled) {
+      // Deactivating: restore previous display state if any
+      if (event.displayStatePrevious) {
+        const currentSnapshot = cloneDisplaySnapshot(event);
+        applyDisplaySnapshot(event, event.displayStatePrevious);
+        event.displayStatePrevious = currentSnapshot;
+      } else {
+        event.displayState.blackScreen = false;
+        event.displayState.updatedAt = new Date().toISOString();
+      }
+    }
+
+    recordScreenAction(event, 'display');
+    saveDb();
+
+    io.to(`event:${event.id}`).emit('bible_mode_changed', {
+      enabled: event.bibleMode,
+      displayState: event.displayState
+    });
+    io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
+    emitUsageStats(event.id);
+
+    res.json({
+      ok: true,
+      bibleMode: event.bibleMode,
+      displayState: event.displayState,
+      previousState: event.displayStatePrevious || null,
+      event: normalizeEventForAccess(req, event)
+    });
+  });
+
   app.post('/api/events/:id/display/restore-last', (req, res) => {
     const event = db.events[req.params.id];
     if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });

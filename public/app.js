@@ -2869,6 +2869,7 @@ socket.on('joined_event', ({ event, role }) => {
   closeInlineEditors();
   refreshEventList();
   setPartialTranscript();
+  updateBibleModeUI();
 });
 
 socket.on('transcript_entry', (entry) => {
@@ -3159,6 +3160,57 @@ $('audioInput').addEventListener('change', async () => {
 });
 $('startRecognitionBtn').addEventListener('click', startTranslation);
 $('stopRecognitionBtn').addEventListener('click', stopTranslation);
+
+// BIBLE MODE: toggle button
+$('bibleModeBtn')?.addEventListener('click', toggleBibleMode);
+
+async function toggleBibleMode() {
+  if (!currentEvent?.id) {
+    setStatus('No active event.');
+    return;
+  }
+  const willEnable = !currentEvent.bibleMode;
+  try {
+    const res = await fetch(`/api/events/${currentEvent.id}/bible-mode`,
+      adminJsonOptions('POST', { enabled: willEnable }));
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to toggle Bible Mode');
+    currentEvent.bibleMode = data.bibleMode;
+    if (data.displayState) currentEvent.displayState = data.displayState;
+    if (data.event) currentEvent = data.event;
+    updateBibleModeUI();
+    setStatus(willEnable ? '📖 Bible Mode ON' : '📖 Bible Mode OFF');
+  } catch (err) {
+    console.error('[bible-mode] toggle failed:', err);
+    setStatus('Bible Mode toggle failed.');
+  }
+}
+
+function updateBibleModeUI() {
+  const btn = $('bibleModeBtn');
+  const status = $('bibleModeStatus');
+  const card = btn?.closest('.bible-mode-card');
+  if (!btn || !status) return;
+  if (currentEvent?.bibleMode) {
+    btn.textContent = '✕ Resume Translation';
+    btn.classList.add('bible-active');
+    status.textContent = '📖 Reading from Bible — translation paused';
+    card?.classList.add('bible-mode-active');
+  } else {
+    btn.textContent = '📖 Read from Bible';
+    btn.classList.remove('bible-active');
+    status.textContent = 'Translation active';
+    card?.classList.remove('bible-mode-active');
+  }
+}
+
+socket.on('bible_mode_changed', (payload) => {
+  if (currentEvent && currentEvent.id) {
+    currentEvent.bibleMode = !!payload.enabled;
+    if (payload.displayState) currentEvent.displayState = payload.displayState;
+    updateBibleModeUI();
+  }
+});
 
 document.addEventListener('keydown', (e) => {
   const target = e.target;
