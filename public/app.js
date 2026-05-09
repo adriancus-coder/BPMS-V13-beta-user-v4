@@ -3187,20 +3187,46 @@ async function toggleBibleMode() {
 }
 
 function updateBibleModeUI() {
+  // Tab Dashboard button
   const btn = $('bibleModeBtn');
   const status = $('bibleModeStatus');
   const card = btn?.closest('.bible-mode-card');
-  if (!btn || !status) return;
-  if (currentEvent?.bibleMode) {
-    btn.textContent = '✕ Resume Translation';
-    btn.classList.add('bible-active');
-    status.textContent = '📖 Reading from Bible — translation paused';
-    card?.classList.add('bible-mode-active');
-  } else {
-    btn.textContent = '📖 Read from Bible';
-    btn.classList.remove('bible-active');
-    status.textContent = 'Translation active';
-    card?.classList.remove('bible-mode-active');
+
+  // Hero topbar button
+  const heroBtn = $('heroBibleModeBtn');
+  const heroStatus = $('heroBibleModeStatus');
+  const heroGroup = heroBtn?.closest('.hero-bible-group');
+
+  const isActive = !!currentEvent?.bibleMode;
+
+  // Update tab Dashboard
+  if (btn && status) {
+    if (isActive) {
+      btn.textContent = '✕ Resume Translation';
+      btn.classList.add('bible-active');
+      status.textContent = '📖 Reading from Bible — translation paused';
+      card?.classList.add('bible-mode-active');
+    } else {
+      btn.textContent = '📖 Read from Bible';
+      btn.classList.remove('bible-active');
+      status.textContent = 'Translation active';
+      card?.classList.remove('bible-mode-active');
+    }
+  }
+
+  // Update hero topbar
+  if (heroBtn && heroStatus) {
+    if (isActive) {
+      heroBtn.textContent = '✕ Resume';
+      heroBtn.classList.add('bible-active');
+      heroStatus.textContent = '📖 Reading from Bible';
+      heroGroup?.classList.add('hero-bible-active');
+    } else {
+      heroBtn.textContent = '📖 Read from Bible';
+      heroBtn.classList.remove('bible-active');
+      heroStatus.textContent = 'Translation active';
+      heroGroup?.classList.remove('hero-bible-active');
+    }
   }
 }
 
@@ -3341,6 +3367,8 @@ $('heroRestoreScreenBtn')?.addEventListener('click', async () => {
 $('heroStartRecognitionBtn')?.addEventListener('click', () => { $('startRecognitionBtn')?.click(); });
 $('heroStopRecognitionBtn')?.addEventListener('click', () => { $('stopRecognitionBtn')?.click(); });
 $('heroEndServiceBtn')?.addEventListener('click', () => { $('endServiceBtn')?.click(); });
+// BIBLE MODE V2: hero topbar button proxy
+$('heroBibleModeBtn')?.addEventListener('click', () => { $('bibleModeBtn')?.click(); });
 $('heroMuteGlobalBtn')?.addEventListener('click', () => { $('muteGlobalBtn')?.click(); });
 $('heroPanicBtn')?.addEventListener('click', () => { $('panicBtn')?.click(); });
 $('refreshEventsBtn').addEventListener('click', refreshEventList);

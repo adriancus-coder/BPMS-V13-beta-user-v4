@@ -5311,3 +5311,35 @@ body.participant-preview-mode .participant-event-chooser {
   line-height: 1.5;
   color: #e8d5b7;
 }
+
+/* Hero Bible Mode button */
+.hero-bible-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.hero-quick-status {
+  font-size: 0.75rem;
+  color: #888;
+  text-align: center;
+  line-height: 1.2;
+  max-width: 140px;
+}
+
+.hero-bible-group.hero-bible-active .hero-quick-status {
+  color: #d4a574;
+  font-weight: 500;
+}
+
+#heroBibleModeBtn.bible-active {
+  background: #d4a574;
+  color: #1a1a1a;
+  font-weight: 600;
+  border-color: #d4a574;
+}
+
+#heroBibleModeBtn.bible-active:hover {
+  background: #c89560;
+}

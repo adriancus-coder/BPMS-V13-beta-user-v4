@@ -933,18 +933,18 @@ function hideServiceEndedOverlay() {
 
 // BIBLE MODE: localized messages in 12 languages
 const BIBLE_READING_MESSAGES = {
-  ro: { title: '📖 Citim din Biblie', subtitle: 'Vă rugăm urmăriți traducerea în aplicația dumneavoastră de Biblie.' },
-  no: { title: '📖 Vi leser fra Bibelen', subtitle: 'Vennligst bruk din egen Bibel-app for oversettelsen.' },
-  en: { title: '📖 Reading from the Bible', subtitle: 'Please follow along in your Bible app.' },
-  ru: { title: '📖 Читаем из Библии', subtitle: 'Пожалуйста, используйте свое приложение Библии для перевода.' },
-  uk: { title: '📖 Читаємо з Біблії', subtitle: 'Будь ласка, використовуйте свій додаток Біблії для перекладу.' },
-  es: { title: '📖 Leyendo la Biblia', subtitle: 'Por favor, sigue la lectura en tu aplicación de Biblia.' },
-  de: { title: '📖 Lesen aus der Bibel', subtitle: 'Bitte folgen Sie in Ihrer Bibel-App.' },
-  fr: { title: '📖 Lecture de la Bible', subtitle: 'Veuillez suivre dans votre application Bible.' },
-  it: { title: '📖 Lettura dalla Bibbia', subtitle: 'Si prega di seguire nella vostra app della Bibbia.' },
-  hu: { title: '📖 A Bibliából olvasunk', subtitle: 'Kérjük, kövesse a saját Biblia alkalmazásában.' },
-  pl: { title: '📖 Czytamy z Biblii', subtitle: 'Prosimy śledzić w swojej aplikacji Biblii.' },
-  pt: { title: '📖 Leitura da Bíblia', subtitle: 'Por favor, acompanhe no seu aplicativo da Bíblia.' }
+  ro: { title: '📖 Citește din Biblie', subtitle: 'Citește din Biblia ta sau de pe ecran.' },
+  no: { title: '📖 Bibellesning', subtitle: 'Les fra din egen Bibel eller fra skjermen.' },
+  en: { title: '📖 Bible Reading', subtitle: 'Read from your Bible or from the screen.' },
+  ru: { title: '📖 Чтение Библии', subtitle: 'Читайте из своей Библии или с экрана.' },
+  uk: { title: '📖 Читання Біблії', subtitle: 'Читайте зі своєї Біблії або з екрану.' },
+  es: { title: '📖 Lectura de la Biblia', subtitle: 'Lee de tu Biblia o de la pantalla.' },
+  de: { title: '📖 Bibellesung', subtitle: 'Lies aus deiner Bibel oder vom Bildschirm.' },
+  fr: { title: '📖 Lecture de la Bible', subtitle: 'Lisez dans votre Bible ou sur l\'écran.' },
+  it: { title: '📖 Lettura della Bibbia', subtitle: 'Leggi dalla tua Bibbia o dallo schermo.' },
+  hu: { title: '📖 Bibliaolvasás', subtitle: 'Olvasd a saját Bibliádból vagy a kijelzőről.' },
+  pl: { title: '📖 Czytanie Biblii', subtitle: 'Czytaj ze swojej Biblii lub z ekranu.' },
+  pt: { title: '📖 Leitura da Bíblia', subtitle: 'Lê da tua Bíblia ou do ecrã.' }
 };
 
 function getBibleReadingText() {
