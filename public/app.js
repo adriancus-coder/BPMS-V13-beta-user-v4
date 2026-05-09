@@ -2290,6 +2290,117 @@ function updateMonitorGain() {
   if (audioState.monitorGainNode) audioState.monitorGainNode.gain.value = gain;
 }
 
+// ============================================
+// MUTE INPUT V3: reusable mute functionality
+// Used by: manual checkbox + Bible Mode auto
+// ============================================
+
+// State pentru tracking - cine a inițiat mute (pentru edge case)
+const muteInputState = {
+  savedGainPercent: null,        // valoarea slider-ului dinainte de mute
+  isMuted: false,                // is currently muted?
+  initiator: null                // 'manual' | 'bible-mode' | null
+};
+
+/**
+ * Mute or unmute the microphone input.
+ * @param {boolean} enabled - true to mute, false to unmute
+ * @param {string} initiator - 'manual' or 'bible-mode'
+ * @returns {boolean} success
+ */
+function muteInputAudio(enabled, initiator = 'manual') {
+  if (!audioState.preampNode) {
+    // Audio not initialized yet - just update UI state
+    if (enabled) {
+      muteInputState.isMuted = true;
+      muteInputState.initiator = initiator;
+    } else {
+      muteInputState.isMuted = false;
+      muteInputState.initiator = null;
+    }
+    updateMuteInputUI();
+    return true;
+  }
+
+  if (enabled && !muteInputState.isMuted) {
+    // ENABLE MUTE
+    const slider = $('inputGainRange');
+    const currentValue = Number(slider?.value || 100);
+    muteInputState.savedGainPercent = currentValue;
+    muteInputState.isMuted = true;
+    muteInputState.initiator = initiator;
+
+    // Set slider to 0 (visual feedback) and gain to 0 (real audio)
+    if (slider) {
+      slider.value = 0;
+      updateInputGain(); // recalculates label and applies gain
+    }
+
+    updateMuteInputUI();
+    return true;
+  }
+
+  if (!enabled && muteInputState.isMuted) {
+    // DISABLE MUTE
+    const slider = $('inputGainRange');
+    const restoreValue = muteInputState.savedGainPercent ?? 100;
+
+    if (slider) {
+      slider.value = restoreValue;
+      updateInputGain();
+    }
+
+    muteInputState.savedGainPercent = null;
+    muteInputState.isMuted = false;
+    muteInputState.initiator = null;
+
+    updateMuteInputUI();
+    return true;
+  }
+
+  return false; // no change
+}
+
+function updateMuteInputUI() {
+  const checkbox = $('muteInputBox');
+  const status = $('muteInputStatus');
+  const slider = $('inputGainRange');
+  const row = checkbox?.closest('.mute-input-row');
+
+  if (checkbox) checkbox.checked = muteInputState.isMuted;
+  if (status) status.hidden = !muteInputState.isMuted;
+
+  if (row) {
+    if (muteInputState.isMuted) {
+      row.classList.add('muted-active');
+    } else {
+      row.classList.remove('muted-active');
+    }
+  }
+
+  // Optionally disable slider visually during mute (still functional, but discouraged)
+  // Doar dacă e bibleMode, dezactivăm slider visual (operator nu trebuie să-l miște)
+  // Dacă e manual mute, lăsăm slider activ - operator poate ajusta gain salvat
+  if (slider) {
+    if (muteInputState.isMuted && muteInputState.initiator === 'bible-mode') {
+      slider.classList.add('mute-input-disabled-slider');
+    } else {
+      slider.classList.remove('mute-input-disabled-slider');
+    }
+  }
+}
+
+// Listener pentru checkbox manual
+$('muteInputBox')?.addEventListener('change', (e) => {
+  const enabled = e.target.checked;
+  muteInputAudio(enabled, 'manual');
+  if (enabled) {
+    setStatus('🔇 Microphone muted', 'info');
+  } else {
+    setStatus('🎤 Microphone unmuted', 'ok');
+  }
+});
+
 function startMeterLoop() {
   if (!audioState.analyser) return;
   const displayData = new Uint8Array(audioState.analyser.fftSize);
@@ -2351,6 +2462,10 @@ async function createAudioPipeline(options = {}) {
   audioState.preampNode.connect(audioState.monitorGainNode);
   audioState.monitorGainNode.connect(audioState.context.destination);
   audioState.gainNode.gain.value = 1;
+  // MUTE INPUT V3: dacă era setat mute înainte de crearea pipeline-ului, aplicăm
+  if (muteInputState.isMuted && audioState.preampNode) {
+    audioState.preampNode.gain.value = 0;
+  }
   updateInputGain();
   updateMonitorGain();
   startMeterLoop();
@@ -3166,23 +3281,69 @@ $('bibleModeBtn')?.addEventListener('click', toggleBibleMode);
 
 async function toggleBibleMode() {
   if (!currentEvent?.id) {
-    setStatus('No active event.');
+    setStatus('No active event.', 'warn');
     return;
   }
   const willEnable = !currentEvent.bibleMode;
+
   try {
+    if (willEnable) {
+      // ACTIVATING: mute via reusable function (drain pipeline)
+      // Save mute state BEFORE we enable, ca să știm la dezactivare ce să facem
+      const wasMutedBefore = muteInputState.isMuted;
+      const wasMutedByManual = wasMutedBefore && muteInputState.initiator === 'manual';
+
+      // Mark this Bible Mode session - dacă era deja mut manual, păstrăm acel context
+      currentEvent._bibleModeSetMute = !wasMutedBefore; // true = noi am setat mute
+      currentEvent._bibleModePreservedManualMute = wasMutedByManual;
+
+      // Apply mute (sau dacă era deja mut manual, nu se schimbă nimic)
+      if (!wasMutedBefore) {
+        muteInputAudio(true, 'bible-mode');
+      }
+
+      setStatus('📖 Activating Bible Mode... draining pipeline', 'info');
+
+      // Wait 1 second for any in-flight translations to complete and reach participants
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    // Send to server
     const res = await fetch(`/api/events/${currentEvent.id}/bible-mode`,
       adminJsonOptions('POST', { enabled: willEnable }));
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to toggle Bible Mode');
+
     currentEvent.bibleMode = data.bibleMode;
     if (data.displayState) currentEvent.displayState = data.displayState;
-    if (data.event) currentEvent = data.event;
+
+    if (!willEnable) {
+      // DEACTIVATING: edge case - debifează DOAR dacă Bible Mode a bifat
+      // Dacă era manual mute înainte, păstrează-l
+      if (currentEvent._bibleModeSetMute && !currentEvent._bibleModePreservedManualMute) {
+        // Bible Mode a bifat - debifăm
+        muteInputAudio(false, 'bible-mode');
+      }
+      // Reset tracking flags
+      delete currentEvent._bibleModeSetMute;
+      delete currentEvent._bibleModePreservedManualMute;
+    }
+
     updateBibleModeUI();
-    setStatus(willEnable ? '📖 Bible Mode ON' : '📖 Bible Mode OFF');
+    setStatus(willEnable
+      ? '📖 Bible Mode ON'
+      : '📖 Bible Mode OFF',
+      'ok');
   } catch (err) {
     console.error('[bible-mode] toggle failed:', err);
-    setStatus('Bible Mode toggle failed.');
+    setStatus('Bible Mode toggle failed.', 'warn');
+
+    // Cleanup on error: dacă noi am bifat, debifăm
+    if (willEnable && currentEvent?._bibleModeSetMute) {
+      muteInputAudio(false, 'bible-mode');
+      delete currentEvent._bibleModeSetMute;
+      delete currentEvent._bibleModePreservedManualMute;
+    }
   }
 }
 
