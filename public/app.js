@@ -2310,14 +2310,34 @@ const muteInputState = {
  */
 function muteInputAudio(enabled, initiator = 'manual') {
   if (!audioState.preampNode) {
-    // Audio not initialized yet - just update UI state
+    // Audio not initialized yet - update UI state + slider so createAudioPipeline finds correct value
+    const slider = $('inputGainRange');
+
     if (enabled) {
+      // Save current slider value, set to 0
+      const currentValue = Number(slider?.value || 100);
+      muteInputState.savedGainPercent = currentValue;
       muteInputState.isMuted = true;
       muteInputState.initiator = initiator;
+
+      if (slider) {
+        slider.value = 0;
+        updateInputGain(); // updates label
+      }
     } else {
+      // Restore slider value
+      const restoreValue = muteInputState.savedGainPercent ?? 100;
+
+      if (slider) {
+        slider.value = restoreValue;
+        updateInputGain();
+      }
+
+      muteInputState.savedGainPercent = null;
       muteInputState.isMuted = false;
       muteInputState.initiator = null;
     }
+
     updateMuteInputUI();
     return true;
   }
