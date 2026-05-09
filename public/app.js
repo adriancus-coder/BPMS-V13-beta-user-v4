@@ -3324,8 +3324,8 @@ async function toggleBibleMode() {
 
       setStatus('📖 Activating Bible Mode... draining pipeline', 'info');
 
-      // Wait 1 second for any in-flight translations to complete and reach participants
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Wait 3 seconds for any in-flight translations to complete and reach participants
+      await new Promise(resolve => setTimeout(resolve, 3000));
     }
 
     // Send to server

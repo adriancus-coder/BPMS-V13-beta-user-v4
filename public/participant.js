@@ -961,8 +961,10 @@ function showBibleReadingOverlay() {
     overlay.innerHTML = `
       <div class="participant-bible-reading-card">
         <div class="participant-bible-reading-icon">📖</div>
-        <h2 id="participantBibleReadingTitle"></h2>
-        <p id="participantBibleReadingSubtitle"></p>
+        <div class="participant-bible-reading-text-wrap">
+          <h2 id="participantBibleReadingTitle"></h2>
+          <p id="participantBibleReadingSubtitle"></p>
+        </div>
       </div>
     `;
     document.body.appendChild(overlay);
