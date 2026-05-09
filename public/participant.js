@@ -952,32 +952,56 @@ function getBibleReadingText() {
   return BIBLE_READING_MESSAGES[lang] || BIBLE_READING_MESSAGES.en;
 }
 
+// BIBLE MODE V3.3: track if Bible Reading is active in live text
+let bibleReadingLiveTextActive = false;
+
 function showBibleReadingOverlay() {
-  let overlay = document.getElementById('participantBibleReading');
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.id = 'participantBibleReading';
-    overlay.className = 'participant-bible-reading';
-    overlay.innerHTML = `
-      <div class="participant-bible-reading-card">
-        <div class="participant-bible-reading-icon">📖</div>
-        <div class="participant-bible-reading-text-wrap">
-          <h2 id="participantBibleReadingTitle"></h2>
-          <p id="participantBibleReadingSubtitle"></p>
-        </div>
-      </div>
+  // Bottom subtle bar with subtitle (doar instrucțiunea)
+  let bottomBar = document.getElementById('participantBibleReadingBottom');
+  if (!bottomBar) {
+    bottomBar = document.createElement('div');
+    bottomBar.id = 'participantBibleReadingBottom';
+    bottomBar.className = 'participant-bible-reading-bottom';
+    bottomBar.innerHTML = `
+      <span class="participant-bible-reading-bottom-icon">📖</span>
+      <span id="participantBibleReadingBottomText"></span>
     `;
-    document.body.appendChild(overlay);
+    document.body.appendChild(bottomBar);
   }
   const text = getBibleReadingText();
-  document.getElementById('participantBibleReadingTitle').textContent = text.title;
-  document.getElementById('participantBibleReadingSubtitle').textContent = text.subtitle;
-  overlay.hidden = false;
+  document.getElementById('participantBibleReadingBottomText').textContent = text.subtitle;
+  bottomBar.hidden = false;
+
+  // After 3 seconds (drain pipeline), replace Live Text with Bible Reading title
+  setTimeout(() => {
+    if (state.currentEvent?.bibleMode) {
+      bibleReadingLiveTextActive = true;
+      const lastTextEl = document.getElementById('lastText');
+      if (lastTextEl) {
+        lastTextEl.innerHTML = `<span class="bible-reading-live-icon">📖</span> ${text.title}`;
+        lastTextEl.classList.add('bible-reading-mode');
+      }
+    }
+  }, 3000);
 }
 
 function hideBibleReadingOverlay() {
-  const overlay = document.getElementById('participantBibleReading');
-  if (overlay) overlay.hidden = true;
+  // Hide bottom bar
+  const bottomBar = document.getElementById('participantBibleReadingBottom');
+  if (bottomBar) bottomBar.hidden = true;
+
+  // Restore Live Text - remove bible mode styling
+  bibleReadingLiveTextActive = false;
+  const lastTextEl = document.getElementById('lastText');
+  if (lastTextEl) {
+    lastTextEl.classList.remove('bible-reading-mode');
+    // Don't manually set text - let the next renderLiveView call update it normally
+  }
+
+  // Trigger re-render of live view to restore proper text
+  if (typeof renderLiveView === 'function') {
+    renderLiveView({ announce: false });
+  }
 }
 
 function acceptAiNotice() {
@@ -1232,6 +1256,10 @@ socket.on('service_ended', (payload) => {
 
 // BIBLE MODE: handle activation/deactivation
 socket.on('bible_mode_changed', (payload) => {
+  // V3.3: keep state in sync so the 3s drain guard inside showBibleReadingOverlay sees the current value
+  if (state.currentEvent) {
+    state.currentEvent.bibleMode = !!payload?.enabled;
+  }
   if (payload?.enabled) {
     showBibleReadingOverlay();
   } else {
