@@ -4509,6 +4509,120 @@ app.post('/api/admin/push-subscribe', (req, res) => {
   res.json({ ok: true });
 });
 
+// BUGFIX V5 Layer 4: scan + auto-clean translations the OpenAI model wrote in the wrong language.
+// Auth: header `x-main-operator-code` matching globalAccess.mainOperatorCode (same surface as
+// operator login). Backs up sessions.json + translation-cache.json BEFORE mutations to
+// /var/data/audit-backup-<timestamp>.json. Auto-clean is enabled per task spec; only removes
+// high-confidence mismatches (detector returns 'high' AND detected !== expected).
+// Returns a JSON report with sample mismatches (capped at 20 per category) for inspection.
+app.post('/admin/audit-translations', (req, res) => {
+  const supplied = String(req.headers['x-main-operator-code'] || '').trim();
+  const orgAccess = getOrganizationAccess(DEFAULT_ORG_ID);
+  const expected = String(orgAccess?.mainOperatorCode || '').trim();
+  if (!expected || supplied !== expected) {
+    return res.status(401).json({ ok: false, error: 'Invalid x-main-operator-code header.' });
+  }
+
+  const tsLabel = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupPath = path.join(DATA_DIR, `audit-backup-${tsLabel}.json`);
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    const backup = {
+      ts: new Date().toISOString(),
+      sessions: fs.existsSync(DB_FILE) ? JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) : null,
+      translationCache: Array.from(translationCache.entries())
+    };
+    fs.writeFileSync(backupPath, JSON.stringify(backup), 'utf8');
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: `Backup failed: ${err?.message || err}`, backupPath });
+  }
+
+  // 1. Global translation cache: key format `srcLang::tgtLang::speed::glossarySig::context::sourceText`
+  const cacheReport = { scanned: 0, suspects: 0, removed: 0, mismatches: [] };
+  for (const [key, value] of Array.from(translationCache.entries())) {
+    cacheReport.scanned += 1;
+    const parts = String(key).split('::');
+    const tgtLang = parts[1];
+    if (!tgtLang || !LANGUAGES[tgtLang]) continue;
+    const detected = detectLanguage(value);
+    if (detected.lang !== 'unknown' && detected.lang !== tgtLang && detected.confidence === 'high') {
+      cacheReport.suspects += 1;
+      if (cacheReport.mismatches.length < 20) {
+        cacheReport.mismatches.push({
+          expectedLang: tgtLang,
+          detectedLang: detected.lang,
+          keyPreview: key.slice(0, 120),
+          valuePreview: String(value).slice(0, 120)
+        });
+      }
+      translationCache.delete(key);
+      cacheReport.removed += 1;
+    }
+  }
+  if (cacheReport.removed > 0) {
+    translationCacheDirty = true;
+    flushPersistentTranslationCache();
+  }
+
+  // 2. Per-song library translationsByHash across all orgs
+  const libReport = { scanned: 0, suspects: 0, removed: 0, mismatches: [] };
+  for (const orgId of Object.keys(db.organizations || {})) {
+    const org = db.organizations[orgId];
+    const library = Array.isArray(org?.globalSongLibrary) ? org.globalSongLibrary : [];
+    for (const song of library) {
+      const hashCache = song?.translationsByHash;
+      if (!hashCache || typeof hashCache !== 'object') continue;
+      for (const blockHash of Object.keys(hashCache)) {
+        const blockTranslations = hashCache[blockHash];
+        if (!blockTranslations || typeof blockTranslations !== 'object') continue;
+        for (const tgtLang of Object.keys(blockTranslations)) {
+          if (!LANGUAGES[tgtLang]) continue;
+          const value = blockTranslations[tgtLang];
+          if (typeof value !== 'string' || !value) continue;
+          libReport.scanned += 1;
+          const detected = detectLanguage(value);
+          if (detected.lang !== 'unknown' && detected.lang !== tgtLang && detected.confidence === 'high') {
+            libReport.suspects += 1;
+            if (libReport.mismatches.length < 20) {
+              libReport.mismatches.push({
+                orgId,
+                songTitle: song?.title || '(untitled)',
+                expectedLang: tgtLang,
+                detectedLang: detected.lang,
+                valuePreview: String(value).slice(0, 120)
+              });
+            }
+            delete blockTranslations[tgtLang];
+            libReport.removed += 1;
+          }
+        }
+      }
+    }
+  }
+  if (libReport.removed > 0) {
+    saveDb();
+  }
+
+  logger.info(`audit-translations: cache scanned=${cacheReport.scanned} removed=${cacheReport.removed} | library scanned=${libReport.scanned} removed=${libReport.removed} | backup=${backupPath}`);
+
+  res.json({
+    ok: true,
+    backupPath,
+    cacheGlobal: {
+      scanned: cacheReport.scanned,
+      suspects: cacheReport.suspects,
+      removed: cacheReport.removed,
+      sample: cacheReport.mismatches
+    },
+    libraryByHash: {
+      scanned: libReport.scanned,
+      suspects: libReport.suspects,
+      removed: libReport.removed,
+      sample: libReport.mismatches
+    }
+  });
+});
+
 const OPERATOR_SESSION_COOKIE = 'sv_operator_session';
 const OPERATOR_SESSION_MAX_AGE_MS = Math.max(1, Number(process.env.OPERATOR_SESSION_MAX_AGE_HOURS || 4) || 4) * 60 * 60 * 1000;
 
