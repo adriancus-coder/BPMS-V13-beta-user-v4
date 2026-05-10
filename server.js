@@ -1395,6 +1395,8 @@ const AZURE_LIVE_TEXT_TARGET_WORDS = 6;
 const AZURE_LIVE_TEXT_MAX_WORDS = 12;
 const AZURE_LIVE_TEXT_SOFT_WAIT_MS = 150;
 const AZURE_LIVE_TEXT_HARD_WAIT_MS = 600;
+// SMART FLUSH V2: threshold pentru proactive flush partial (mai mic decât MAX_WORDS)
+const AZURE_PARTIAL_FLUSH_THRESHOLD = 8;  // partial flush la 8 cuvinte (era 12 prin MAX_WORDS)
 
 // Conectori clasici - blochează flush la sfârșit (păstrează în buffer pentru context)
 // ATENȚIE: scoatem 'și', 'si', 'să', 'sa', 'dar', 'iar' - acum sunt FLUSH_BEFORE triggers
@@ -3247,7 +3249,7 @@ function startAzureSpeechSession(socket, event) {
   // Mode-ul se aplică la pornirea sesiunii. Pentru schimbare mid-Live: Stop + Start.
   const segmentationByMode = {
     rapid: '300',
-    balanced: '500',
+    balanced: '300',  // SMART FLUSH V2: redus de la 500 pentru vorbire continuă rapidă
     clear: '800'
   };
   const segmentationTimeout = segmentationByMode[event.speed] || segmentationByMode.balanced;
@@ -3280,8 +3282,8 @@ function startAzureSpeechSession(socket, event) {
     // Asta e MARE diferență față de comportamentul vechi care aștepta `recognized`
     const words = countWords(text);
 
-    // Trigger condition: 8+ cuvinte ȘI nu e duplicat
-    if (words >= AZURE_LIVE_TEXT_MAX_WORDS) {
+    // SMART FLUSH V2: Trigger la AZURE_PARTIAL_FLUSH_THRESHOLD (8) ȘI nu e duplicat
+    if (words >= AZURE_PARTIAL_FLUSH_THRESHOLD) {
       // Verific cu tracker dacă deja am flush-uit text similar
       if (!isPartialFlushDuplicate(event.id, text)) {
         // Calculez delta - doar partea nouă (după ce am flush-uit ultima oară)
