@@ -246,6 +246,27 @@ const LANGUAGES = {
   el: 'Greek'
 };
 
+// HOTFIX V7.1: hoisted to module-constants area (was at line ~1586) so migrateNormalizeContent
+// can safely call normalizeTextInput at startup without TDZ ReferenceError. Function declarations
+// are hoisted but `const` values are not — they were initialized AFTER the migration call ran.
+// See full normalizeTextInput body below for usage / docs.
+const ZERO_WIDTH_CHARS = /[​‌‍⁠﻿]/g;
+const MOJIBAKE_MAP = Object.freeze({
+  // Romanian (most relevant to bug)
+  'Ã®': 'î', 'Ã¢': 'â', 'Ã‚': 'Â', 'ÃŽ': 'Î',
+  'È™': 'ș', 'È›': 'ț', 'È˜': 'Ș', 'Èš': 'Ț',
+  // Norwegian / Scandinavian
+  'Ã¥': 'å', 'Ã¦': 'æ', 'Ã¸': 'ø', 'Ã…': 'Å', 'Ã†': 'Æ', 'Ã˜': 'Ø',
+  // West-European latin
+  'Ã©': 'é', 'Ã¨': 'è', 'Ãª': 'ê', 'Ã«': 'ë',
+  'Ã¡': 'á', 'Ã ': 'à', 'Ã­': 'í', 'Ã²': 'ò', 'Ã³': 'ó', 'Ã¶': 'ö',
+  'Ã¬': 'ì', 'Ãº': 'ú', 'Ã¹': 'ù', 'Ã¼': 'ü', 'Ã¤': 'ä',
+  'ÃŸ': 'ß', 'Ã±': 'ñ',
+  // Smart punctuation (mojibake of curly quotes/dashes/ellipsis)
+  'â€™': '’', 'â€˜': '‘', 'â€œ': '“', 'â€': '”',
+  'â€"': '—', 'â€"': '–', 'â€¦': '…'
+});
+
 const LANGUAGE_NAMES_RO_LEGACY = {
   ro: 'Română',
   no: 'Norvegiană',
@@ -1583,23 +1604,8 @@ function sanitizeTranscriptText(text) {
 //      and made it interpret RO text as non-RO → returned English instead of Norwegian.
 //   5. Strip remaining zero-width chars (U+200B/200C/200D/2060/FEFF)
 // NOT done: smart-quote replacement (could change user-facing intent).
-const ZERO_WIDTH_CHARS = /[​‌‍⁠﻿]/g;
-const MOJIBAKE_MAP = Object.freeze({
-  // Romanian (most relevant to bug)
-  'Ã®': 'î', 'Ã¢': 'â', 'Ã‚': 'Â', 'ÃŽ': 'Î',
-  'È™': 'ș', 'È›': 'ț', 'È˜': 'Ș', 'Èš': 'Ț',
-  // Norwegian / Scandinavian
-  'Ã¥': 'å', 'Ã¦': 'æ', 'Ã¸': 'ø', 'Ã…': 'Å', 'Ã†': 'Æ', 'Ã˜': 'Ø',
-  // West-European latin
-  'Ã©': 'é', 'Ã¨': 'è', 'Ãª': 'ê', 'Ã«': 'ë',
-  'Ã¡': 'á', 'Ã ': 'à', 'Ã­': 'í', 'Ã²': 'ò', 'Ã³': 'ó', 'Ã¶': 'ö',
-  'Ã¬': 'ì', 'Ãº': 'ú', 'Ã¹': 'ù', 'Ã¼': 'ü', 'Ã¤': 'ä',
-  'ÃŸ': 'ß', 'Ã±': 'ñ',
-  // Smart punctuation (mojibake of curly quotes/dashes/ellipsis)
-  'â€™': '’', 'â€˜': '‘', 'â€œ': '“', 'â€': '”',
-  'â€"': '—', 'â€"': '–', 'â€¦': '…'
-});
-
+// HOTFIX V7.1: ZERO_WIDTH_CHARS + MOJIBAKE_MAP hoisted near LANGUAGES (top of file) to avoid
+// TDZ ReferenceError when migrateNormalizeContent runs at startup before this line is reached.
 function normalizeTextInput(text) {
   if (text === null || text === undefined) return '';
   let s = String(text);
