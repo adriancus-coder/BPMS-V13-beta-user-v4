@@ -1110,6 +1110,13 @@ function getBibleReadingText() {
 let bibleReadingLiveTextActive = false;
 
 function showBibleReadingOverlay() {
+  // BUGFIX V4: ascunde zonele de history pentru estetică clean
+  // (Earlier lines inline + History panel ar arăta traduceri vechi peste mesajul Bible Reading)
+  const earlierInline = document.getElementById('participantEarlierLines');
+  const historyPanel = document.getElementById('participantHistoryPanel');
+  if (earlierInline) earlierInline.style.display = 'none';
+  if (historyPanel) historyPanel.style.display = 'none';
+
   // BUGFIX V1: cancel auto-expire timer când intrăm în mod special
   if (typeof cancelLiveTextExpireTimer === 'function') {
     cancelLiveTextExpireTimer();
@@ -1152,6 +1159,12 @@ function showBibleReadingOverlay() {
 }
 
 function hideBibleReadingOverlay() {
+  // BUGFIX V4: restaurează zonele de history (display='' = revin la stilul default din CSS)
+  const earlierInline = document.getElementById('participantEarlierLines');
+  const historyPanel = document.getElementById('participantHistoryPanel');
+  if (earlierInline) earlierInline.style.display = '';
+  if (historyPanel) historyPanel.style.display = '';
+
   // Hide bottom bar
   const bottomBar = document.getElementById('participantBibleReadingBottom');
   if (bottomBar) bottomBar.hidden = true;
