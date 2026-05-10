@@ -1275,6 +1275,7 @@ if (!db.globalAccess || typeof db.globalAccess !== 'object') {
 }
 syncLegacyGlobalsFromDefaultOrg();
 backfillPushSubscriptionRoles();
+migrateNormalizeContent();
 
 function backfillPushSubscriptionRoles() {
   let changed = 0;
@@ -1292,6 +1293,114 @@ function backfillPushSubscriptionRoles() {
     logger.info?.(`Push subscriptions backfilled with role 'participant': ${changed}`);
     try { dbStore.save(db); } catch (_) {}
   }
+}
+
+// BUGFIX V7: one-shot migration that normalizes existing content (paste-from-Word legacy with
+// mixed sedilla/comma diacritics, mojibake, BOM). Runs at server startup; idempotent via
+// `_normalizedAt` marker per item.
+//
+// STRATEGY DECISION for changed-text songs:
+//   We choose (a) WIPE `translationsByHash` rather than (b) intelligent re-hash mapping.
+//   Rationale: the whole point of V7 is that the OLD translations were generated from contaminated
+//   input — preserving them would also preserve any wrong-language artifacts. A clean re-translate
+//   on next "Send to Live" guarantees the OpenAI call sees normalized RO text and produces correct
+//   target-language output. One-time cost, only for content that actually changed.
+//
+// Scope: globalSongLibrary + pinnedTextLibrary. Glossary entries are SKIPPED (low paste risk;
+// admins type them directly; complex key-rewrite for changed source words). Org memory SKIPPED
+// (mostly auto-generated content from translations, not paste).
+function migrateNormalizeContent({ skipBackup = false } = {}) {
+  const stats = { songsScanned: 0, songsChanged: 0, songsSkipped: 0,
+                  pinnedScanned: 0, pinnedChanged: 0, pinnedSkipped: 0,
+                  hashesWiped: 0, backupPath: null };
+  let needsSave = false;
+  let backupTaken = false;
+
+  const tryBackup = () => {
+    if (skipBackup || backupTaken) return;
+    try {
+      if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const backupPath = path.join(DATA_DIR, `sessions.backup-pre-normalize-${ts}.json`);
+      if (fs.existsSync(DB_FILE)) {
+        fs.copyFileSync(DB_FILE, backupPath);
+        stats.backupPath = backupPath;
+        backupTaken = true;
+        logger.info(`migrate-normalize: backup created at ${backupPath}`);
+      } else {
+        logger.info('migrate-normalize: no DB_FILE yet — backup skipped');
+      }
+    } catch (err) {
+      logger.warn('migrate-normalize: backup failed:', err?.message || err);
+    }
+  };
+
+  const processItem = (item, kind) => {
+    if (!item || typeof item !== 'object') return false;
+    if (item._normalizedAt) return false;  // already migrated
+    let changed = false;
+
+    const originalText = typeof item.text === 'string' ? item.text : '';
+    const normalizedText = normalizeTextInput(originalText);
+    const titleChanged = typeof item.title === 'string' && normalizeTextInput(item.title) !== item.title;
+    const textChanged = normalizedText !== originalText;
+
+    if (textChanged || titleChanged) {
+      tryBackup();
+      if (textChanged) {
+        item._textBeforeNormalize = originalText;
+        item.text = normalizedText;
+        if (kind === 'song' && item.translationsByHash && typeof item.translationsByHash === 'object') {
+          // Strategy (a): wipe — clean re-translate on next Send to Live
+          const hashCount = Object.keys(item.translationsByHash).length;
+          item._translationsByHashBeforeNormalize = item.translationsByHash;
+          item.translationsByHash = {};
+          stats.hashesWiped += hashCount;
+        }
+        changed = true;
+      }
+      if (titleChanged) {
+        item._titleBeforeNormalize = item.title;
+        item.title = normalizeTextInput(item.title);
+        changed = true;
+      }
+    }
+
+    item._normalizedAt = new Date().toISOString();
+    return changed || true;  // mark either way — even unchanged items get the marker so we don't re-scan
+  };
+
+  for (const orgId of Object.keys(db.organizations || {})) {
+    const org = db.organizations[orgId];
+    if (!org) continue;
+    const songs = Array.isArray(org.globalSongLibrary) ? org.globalSongLibrary : [];
+    for (const song of songs) {
+      stats.songsScanned += 1;
+      if (song?._normalizedAt) { stats.songsSkipped += 1; continue; }
+      const before = JSON.stringify({ text: song?.text || '', title: song?.title || '' });
+      processItem(song, 'song');
+      const after = JSON.stringify({ text: song?.text || '', title: song?.title || '' });
+      if (before !== after) { stats.songsChanged += 1; needsSave = true; }
+      else needsSave = true;  // we set _normalizedAt marker anyway
+    }
+    const pinned = Array.isArray(org.pinnedTextLibrary) ? org.pinnedTextLibrary : [];
+    for (const item of pinned) {
+      stats.pinnedScanned += 1;
+      if (item?._normalizedAt) { stats.pinnedSkipped += 1; continue; }
+      const before = JSON.stringify({ text: item?.text || '', title: item?.title || '' });
+      processItem(item, 'pinned');
+      const after = JSON.stringify({ text: item?.text || '', title: item?.title || '' });
+      if (before !== after) { stats.pinnedChanged += 1; needsSave = true; }
+      else needsSave = true;
+    }
+  }
+
+  if (needsSave) {
+    try { dbStore.save(db); } catch (err) { logger.warn('migrate-normalize: save failed:', err?.message || err); }
+  }
+
+  logger.info(`migrate-normalize: songs scanned=${stats.songsScanned} changed=${stats.songsChanged} skipped=${stats.songsSkipped} | pinned scanned=${stats.pinnedScanned} changed=${stats.pinnedChanged} skipped=${stats.pinnedSkipped} | hashesWiped=${stats.hashesWiped}`);
+  return stats;
 }
 
 function saveDb() {
@@ -1463,8 +1572,63 @@ function sanitizeTranscriptText(text) {
     .trim();
 }
 
+// BUGFIX V7: agnostic input normalizer for ALL user-supplied text (paste/save/edit).
+// IDEMPOTENT — calling repeatedly produces same result. Steps:
+//   1. Strip BOM at start (﻿)
+//   2. NFC Unicode normalization (canonical composition: 'a'+combining-diacritic → 'á')
+//   3. Mojibake repair (Ã®/È™/â€™ etc. → original chars from double-UTF-8 history)
+//   4. Romanian sedilla → modern comma-below (Latin-2 → Unicode 3.0+)
+//      THIS IS THE ROOT CAUSE FIX for the "OpenAI returns wrong language" bug:
+//      mixed ş (U+015F)/ţ (U+0163) with ș (U+0219)/ț (U+021B) confused gpt-4o-mini
+//      and made it interpret RO text as non-RO → returned English instead of Norwegian.
+//   5. Strip remaining zero-width chars (U+200B/200C/200D/2060/FEFF)
+// NOT done: smart-quote replacement (could change user-facing intent).
+const ZERO_WIDTH_CHARS = /[​‌‍⁠﻿]/g;
+const MOJIBAKE_MAP = Object.freeze({
+  // Romanian (most relevant to bug)
+  'Ã®': 'î', 'Ã¢': 'â', 'Ã‚': 'Â', 'ÃŽ': 'Î',
+  'È™': 'ș', 'È›': 'ț', 'È˜': 'Ș', 'Èš': 'Ț',
+  // Norwegian / Scandinavian
+  'Ã¥': 'å', 'Ã¦': 'æ', 'Ã¸': 'ø', 'Ã…': 'Å', 'Ã†': 'Æ', 'Ã˜': 'Ø',
+  // West-European latin
+  'Ã©': 'é', 'Ã¨': 'è', 'Ãª': 'ê', 'Ã«': 'ë',
+  'Ã¡': 'á', 'Ã ': 'à', 'Ã­': 'í', 'Ã²': 'ò', 'Ã³': 'ó', 'Ã¶': 'ö',
+  'Ã¬': 'ì', 'Ãº': 'ú', 'Ã¹': 'ù', 'Ã¼': 'ü', 'Ã¤': 'ä',
+  'ÃŸ': 'ß', 'Ã±': 'ñ',
+  // Smart punctuation (mojibake of curly quotes/dashes/ellipsis)
+  'â€™': '’', 'â€˜': '‘', 'â€œ': '“', 'â€': '”',
+  'â€"': '—', 'â€"': '–', 'â€¦': '…'
+});
+
+function normalizeTextInput(text) {
+  if (text === null || text === undefined) return '';
+  let s = String(text);
+  if (!s) return '';
+  // 1. BOM strip
+  if (s.charCodeAt(0) === 0xFEFF) s = s.slice(1);
+  // 2. NFC normalization (canonical composition)
+  if (typeof s.normalize === 'function') {
+    try { s = s.normalize('NFC'); } catch (_) { /* fall through if engine refuses */ }
+  }
+  // 3. Mojibake repair (split/join is fast for short strings; avoids regex special-char headaches)
+  for (const bad in MOJIBAKE_MAP) {
+    if (s.indexOf(bad) !== -1) s = s.split(bad).join(MOJIBAKE_MAP[bad]);
+  }
+  // 4. Romanian: sedilla (Latin-2) → comma-below (Unicode 3.0+)
+  s = s
+    .replace(/ş/g, 'ș')  // ş → ș
+    .replace(/Ş/g, 'Ș')  // Ş → Ș
+    .replace(/ţ/g, 'ț')  // ţ → ț
+    .replace(/Ţ/g, 'Ț'); // Ţ → Ț
+  // 5. Strip leftover zero-width chars
+  s = s.replace(ZERO_WIDTH_CHARS, '');
+  return s;
+}
+
 function sanitizeStructuredText(text) {
-  return String(text || '')
+  // BUGFIX V7: normalize encoding + mojibake first, then existing whitespace/punctuation cleanup.
+  // Single point of intervention — all save/edit/translate paths flow through this function.
+  return normalizeTextInput(text)
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .replace(/…/g, '')
@@ -3213,6 +3377,11 @@ async function publishNewChunk(event, chunk, sourceLangOverride = '') {
 }
 
 async function processText(event, cleanText, { force = false, sourceLang = '' } = {}) {
+  // BUGFIX V7: defensive normalize on Azure speech recognition output.
+  // Azure SDK usually returns Unicode 3.0+ (modern RO chars), but applying normalize is idempotent
+  // and cheap. Protects against any edge case where mixed encoding leaks into the translation pipeline.
+  cleanText = normalizeTextInput(cleanText);
+
   if (processingLocks.get(event.id)) {
     // Un alt processText rulează pentru acest eveniment - re-introducem textul
     // în buffer și ieșim. flushSpeechBuffer îl va relua după ce lock-ul scapă.
@@ -4623,6 +4792,25 @@ app.post('/admin/audit-translations', (req, res) => {
   });
 });
 
+// BUGFIX V7: manual re-trigger of normalize migration. Already runs at startup; this is for
+// re-running after content imports or for verifying. Same auth pattern as audit-translations.
+// Idempotent — items already marked _normalizedAt are skipped.
+app.post('/admin/normalize-content', (req, res) => {
+  const supplied = String(req.headers['x-main-operator-code'] || '').trim();
+  const orgAccess = getOrganizationAccess(DEFAULT_ORG_ID);
+  const expected = String(orgAccess?.mainOperatorCode || '').trim();
+  if (!expected || supplied !== expected) {
+    return res.status(401).json({ ok: false, error: 'Invalid x-main-operator-code header.' });
+  }
+  try {
+    const stats = migrateNormalizeContent({ skipBackup: false });
+    res.json({ ok: true, ...stats });
+  } catch (err) {
+    logger.error('normalize-content endpoint error:', err);
+    res.status(500).json({ ok: false, error: err?.message || String(err) });
+  }
+});
+
 const OPERATOR_SESSION_COOKIE = 'sv_operator_session';
 const OPERATOR_SESSION_MAX_AGE_MS = Math.max(1, Number(process.env.OPERATOR_SESSION_MAX_AGE_HOURS || 4) || 4) * 60 * 60 * 1000;
 
@@ -4889,6 +5077,7 @@ registerEventRoutes(app, {
   requireEventRole,
   requireGlobalLibraryAdmin,
   resolveEventAccessFromCode,
+  normalizeTextInput,
   sanitizeStructuredText,
   sanitizeTranscriptText,
   saveDb,

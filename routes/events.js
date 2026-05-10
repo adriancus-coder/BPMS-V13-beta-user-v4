@@ -76,6 +76,7 @@ function registerEventRoutes(app, ctx) {
     requireEventRole,
     requireGlobalLibraryAdmin,
     resolveEventAccessFromCode,
+    normalizeTextInput,
     sanitizeStructuredText,
     sanitizeTranscriptText,
     saveDb,
@@ -684,8 +685,10 @@ function registerEventRoutes(app, ctx) {
     const event = db.events[req.params.id];
     if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
     if (!requireEventAdmin(req, res, event)) return;
-    const source = String(req.body.source || '').trim();
-    const target = String(req.body.target || '').trim();
+    // BUGFIX V7: glossary entries don't go through sanitizeStructuredText, so normalize directly.
+    // Otherwise a glossary key with mixed sedilla/comma diacritics wouldn't match normalized song text.
+    const source = normalizeTextInput(String(req.body.source || '')).trim();
+    const target = normalizeTextInput(String(req.body.target || '')).trim();
     const permanent = !!req.body.permanent;
     const lang = String(req.body.lang || '').trim();
     if (!source || !target) return res.status(400).json({ ok: false, error: 'Date lipsă.' });
