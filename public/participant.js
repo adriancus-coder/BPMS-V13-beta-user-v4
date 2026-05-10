@@ -700,6 +700,20 @@ function scrollLiveStageIntoView() {
   }, 120);
 }
 
+// SMART FLUSH V3: Loading dots indicator (replaces "Waiting..." text messages)
+function showLoadingDots() {
+  const el = document.getElementById('lastText');
+  if (!el) return;
+  el.innerHTML = '<span class="loading-dots"><span>•</span><span>•</span><span>•</span></span>';
+  el.classList.add('loading-dots-active');
+}
+
+function clearLoadingDots() {
+  const el = document.getElementById('lastText');
+  if (!el) return;
+  el.classList.remove('loading-dots-active');
+}
+
 // SMART FLUSH V1.1: smart display function with chunk merging + display delay
 function smartDisplayLiveText(newText, callback) {
   if (!newText || !String(newText).trim()) return;
@@ -715,9 +729,11 @@ function smartDisplayLiveText(newText, callback) {
 
   // SCENARIO 1: Foarte recent (< MERGE_WINDOW_MS) → merge cu textul curent
   if (timeSinceLastDisplay < displayBuffer.MERGE_WINDOW_MS) {
-    const currentText = $('lastText')?.textContent || '';
-    // Verificăm că nu e un mesaj special (Bible Reading, Service ended, etc.)
-    const isSpecialMessage = currentText.includes('📖') || currentText.includes('Waiting') || currentText.includes('Vă așteptăm');
+    const lastTextEl = $('lastText');
+    const currentText = lastTextEl?.textContent || '';
+    // Verificăm că nu e un mesaj special (Bible Reading, Service ended, Loading dots, etc.)
+    const isLoading = !!lastTextEl?.classList?.contains('loading-dots-active');
+    const isSpecialMessage = isLoading || currentText.includes('📖') || currentText.includes('Waiting') || currentText.includes('Vă așteptăm');
 
     if (!isSpecialMessage && currentText) {
       const mergedText = currentText.trim() + ' ' + String(newText).trim();
@@ -761,6 +777,7 @@ function smartDisplayLiveText(newText, callback) {
 function renderLiveView({ announce = false } = {}) {
   if (!state.currentEvent) return;
   if (state.serviceEndedAcknowledged) {
+    clearLoadingDots();
     $('lastText').textContent = getServiceEndedMessages().farewell;
     const earlierBox = $('participantEarlierLines');
     if (earlierBox) earlierBox.innerHTML = '';
@@ -770,6 +787,7 @@ function renderLiveView({ announce = false } = {}) {
   }
   if (state.currentMode === 'song' && state.currentSongState) {
     const songText = getSongTextForCurrentLanguage(state.currentSongState) || 'Waiting for song translation...';
+    clearLoadingDots();
     $('lastText').textContent = songText;
     renderEarlierLines(null);
     renderHistory();
@@ -781,10 +799,11 @@ function renderLiveView({ announce = false } = {}) {
   if (visibleEntry) {
     // SMART FLUSH V1.1: wrap with smartDisplayLiveText for chunk merging + display delay
     smartDisplayLiveText(getTextForEntry(visibleEntry), (text) => {
+      clearLoadingDots();
       $('lastText').innerHTML = highlightBibleRefs(text);
     });
   } else {
-    $('lastText').textContent = 'Waiting for translation...';
+    showLoadingDots();
   }
   renderEarlierLines(visibleEntry?.id || null);
   renderHistory();
@@ -1271,6 +1290,7 @@ socket.on('display_live_entry_partial', (payload) => {
     existing.translations = { ...(existing.translations || {}), [lang]: partialForLang };
     state.visibleLiveEntry = existing;
     state.lastLiveEntryId = existing.id;
+    clearLoadingDots();
     $('lastText').innerHTML = highlightBibleRefs(getTextForEntry(existing));
     return;
   }
@@ -1377,7 +1397,7 @@ socket.on('active_event_changed', async () => {
     state.liveEntryTimer = null;
     $('participantEventName').textContent = 'Choose a live event';
     $('participantEventMeta').textContent = 'The previous event is no longer live.';
-    $('lastText').textContent = 'Waiting for live event...';
+    showLoadingDots();
     $('history').innerHTML = '';
     const chooser = $('participantEventChooser');
     if (chooser) chooser.hidden = false;
