@@ -17,6 +17,46 @@ const displayBuffer = {
   MIN_DISPLAY_MS: 3000       // 3 sec minim între afișări
 };
 
+// BUGFIX V1 - FIX 2: Auto-expire live text dacă nu vine update nou
+const liveTextExpire = {
+  timer: null,
+  EXPIRE_MS: 6000  // 6 secunde
+};
+
+function refreshLiveTextExpireTimer() {
+  // Cancel timer existent
+  if (liveTextExpire.timer) {
+    clearTimeout(liveTextExpire.timer);
+    liveTextExpire.timer = null;
+  }
+
+  // Programează expire în 6 sec
+  liveTextExpire.timer = setTimeout(() => {
+    // Au trecut 6 sec fără update - resetează la loading dots
+    // DOAR dacă suntem în mod Live (nu song, nu service ended, etc.)
+    const isLiveMode = state.currentMode === 'live' || state.currentMode === 'auto' || !state.currentMode;
+    const hasActiveLiveEntry = state.visibleLiveEntry && !state.serviceEndedAcknowledged;
+
+    if (isLiveMode && hasActiveLiveEntry) {
+      // Curăță ultima traducere și arată loading dots
+      state.visibleLiveEntry = null;
+      state.lastLiveEntryId = null;
+      if (typeof showLoadingDots === 'function') {
+        showLoadingDots();
+      }
+    }
+
+    liveTextExpire.timer = null;
+  }, liveTextExpire.EXPIRE_MS);
+}
+
+function cancelLiveTextExpireTimer() {
+  if (liveTextExpire.timer) {
+    clearTimeout(liveTextExpire.timer);
+    liveTextExpire.timer = null;
+  }
+}
+
 const voiceLocales = {
   ro: 'ro-RO',
   no: 'nb-NO',
@@ -297,7 +337,19 @@ function getVisibleLiveEntry() {
   return state.allowTranscriptFallback ? getLatestEntry() : null;
 }
 function getTextForEntry(entry) {
-  return entry?.translations?.[state.currentLanguage] || entry?.original || '';
+  const lang = state.currentLanguage;
+  const sourceLang = entry?.sourceLang || state.currentEvent?.sourceLang || 'ro';
+
+  // Dacă utilizatorul a ales limba sursă, returnăm original (corect)
+  if (lang === sourceLang) {
+    return entry?.original || '';
+  }
+
+  // Altfel, returnăm DOAR traducerea în limba aleasă
+  // BUGFIX V1: NU mai dăm fallback la original (care e în limba sursă)
+  // pentru a evita afișarea textului românesc unui participant care a ales altă limbă.
+  // Dacă lipsește traducerea, returnăm string gol -> handler-ul de afișare va păstra ultima traducere validă.
+  return entry?.translations?.[lang] || '';
 }
 
 function getEntryTimestamp(entry) {
@@ -995,6 +1047,11 @@ function formatServiceEndedTime(iso) {
 }
 
 function showServiceEndedOverlay(endedAt) {
+  // BUGFIX V1: cancel auto-expire timer când intrăm în mod special
+  if (typeof cancelLiveTextExpireTimer === 'function') {
+    cancelLiveTextExpireTimer();
+  }
+
   // SMART FLUSH V1.1: cleanup display buffer când intră în mod special
   if (displayBuffer.pendingTimer) {
     clearTimeout(displayBuffer.pendingTimer);
@@ -1052,6 +1109,11 @@ function getBibleReadingText() {
 let bibleReadingLiveTextActive = false;
 
 function showBibleReadingOverlay() {
+  // BUGFIX V1: cancel auto-expire timer când intrăm în mod special
+  if (typeof cancelLiveTextExpireTimer === 'function') {
+    cancelLiveTextExpireTimer();
+  }
+
   // SMART FLUSH V1.1: cleanup display buffer când intră în mod special
   if (displayBuffer.pendingTimer) {
     clearTimeout(displayBuffer.pendingTimer);
@@ -1267,10 +1329,29 @@ socket.on('transcript_entry', (entry) => {
 socket.on('display_live_entry', (entry) => {
   if (!state.currentEvent) return;
   if (!entry?.id) return;
+
+  // BUGFIX V1: protecție limbă - dacă limba mea NU are traducere, NU procesa entry-ul.
+  // Asta evită bug-ul unde participanții vedeau text românesc în loc de limba lor selectată.
+  // Așteptăm un partial cu limba mea (sau urmatorul display_live_entry cu traducere completă).
+  const lang = state.currentLanguage;
+  const sourceLang = entry?.sourceLang || state.currentEvent?.sourceLang || 'ro';
+  const isSourceUser = lang === sourceLang;
+
+  if (!isSourceUser) {
+    const langTranslation = entry?.translations?.[lang];
+    if (typeof langTranslation !== 'string' || !langTranslation.trim()) {
+      // Skip - nu am traducere pentru limba mea, păstrăm ce afișăm acum
+      return;
+    }
+  }
+
   setParticipantUpdating(false);
   state.serviceEndedAcknowledged = false;
   state.currentEvent.latestDisplayEntry = cloneEntry(entry);
   enqueueLiveEntry(entry);
+
+  // BUGFIX V1: refresh auto-expire timer la fiecare update valid
+  refreshLiveTextExpireTimer();
 });
 
 socket.on('display_live_entry_partial', (payload) => {
@@ -1292,6 +1373,8 @@ socket.on('display_live_entry_partial', (payload) => {
     state.lastLiveEntryId = existing.id;
     clearLoadingDots();
     $('lastText').innerHTML = highlightBibleRefs(getTextForEntry(existing));
+    // BUGFIX V1: refresh auto-expire timer (early-return path is still real activity)
+    refreshLiveTextExpireTimer();
     return;
   }
   if (existing && existing.id !== payload.entryId) {
@@ -1313,6 +1396,9 @@ socket.on('display_live_entry_partial', (payload) => {
   state.liveEntryShownAt = Date.now();
   state.lastLiveEntryId = partialEntry.id;
   renderLiveView({ announce: false });
+
+  // BUGFIX V1: refresh auto-expire timer
+  refreshLiveTextExpireTimer();
 });
 
 socket.on('display_mode_changed', (payload) => {
@@ -1410,6 +1496,10 @@ socket.on('mode_changed', ({ mode }) => {
   if (state.currentEvent) state.currentEvent.mode = state.currentMode;
   syncLanguageOptions({ ...state.currentEvent, mode: state.currentMode, songState: state.currentSongState });
   if (mode === 'song') {
+    // BUGFIX V1: cancel auto-expire timer când intrăm în mod special
+    if (typeof cancelLiveTextExpireTimer === 'function') {
+      cancelLiveTextExpireTimer();
+    }
     state.visibleLiveEntry = null;
     state.awaitingFreshLiveEntry = false;
     state.allowTranscriptFallback = false;
@@ -1430,6 +1520,10 @@ socket.on('mode_changed', ({ mode }) => {
 });
 
 socket.on('song_state', (songState) => {
+  // BUGFIX V1: cancel auto-expire timer când intrăm în mod special
+  if (typeof cancelLiveTextExpireTimer === 'function') {
+    cancelLiveTextExpireTimer();
+  }
   state.currentMode = 'song';
   state.currentSongState = songState;
   state.visibleLiveEntry = null;
