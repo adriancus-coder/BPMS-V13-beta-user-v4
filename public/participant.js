@@ -371,9 +371,10 @@ function getSongTextForCurrentLanguage(songState) {
   if (state.currentLanguage === sourceLang) {
     return songState?.activeBlock || '';
   }
-  return songState?.translations?.[state.currentLanguage]
-    || songState?.activeBlock
-    || '';
+  // BUGFIX V3: NU mai dăm fallback la activeBlock (text original)
+  // pentru a evita afișarea textului românesc unui participant care a ales altă limbă.
+  // Returnăm string gol -> handler-ul de afișare va păstra ultima valoare sau loading dots.
+  return songState?.translations?.[state.currentLanguage] || '';
 }
 
 function getLiveEntryDuration(entry) {

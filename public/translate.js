@@ -212,8 +212,9 @@ function getTextToDisplay(language = state.currentLanguage) {
       return state.songState.activeBlock
         || 'Waiting for song text...';
     }
+    // BUGFIX V3: NU folosim activeBlock ca fallback (text original)
+    // pentru a evita afișarea textului românesc pe Main Screen când e altă limbă selectată
     return state.songState.translations?.[language]
-      || state.songState.activeBlock
       || 'Waiting for song translation...';
   }
   if (state.currentDisplayMode === 'manual') {
