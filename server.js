@@ -1396,11 +1396,30 @@ const AZURE_LIVE_TEXT_MAX_WORDS = 12;
 const AZURE_LIVE_TEXT_SOFT_WAIT_MS = 150;
 const AZURE_LIVE_TEXT_HARD_WAIT_MS = 600;
 
+// Conectori clasici - blochează flush la sfârșit (păstrează în buffer pentru context)
+// ATENȚIE: scoatem 'și', 'si', 'să', 'sa', 'dar', 'iar' - acum sunt FLUSH_BEFORE triggers
 const BUFFER_CONNECTORS = new Set([
-  'și', 'si', 'să', 'sa', 'că', 'ca', 'dar', 'iar', 'ori', 'sau',
+  'ca',  // EXCEPȚIE: 'ca' rămâne conector (ca să, ca un)
+  'ori', 'sau',
   'de', 'la', 'în', 'in', 'cu', 'pe', 'din', 'spre', 'pentru',
   'când', 'cand', 'care', 'ce', 'către', 'catre',
   'og', 'at', 'men', 'som', 'i', 'på', 'med', 'til', 'for'
+]);
+
+// SMART FLUSH V1: cuvinte care DECLANȘEAZĂ flush proactiv în limba română
+// FLUSH_BEFORE: cuvântul curent începe propoziție nouă - flush conținut ANTERIOR, păstrează cuvântul
+const FLUSH_BEFORE_WORDS = new Set([
+  'și', 'si',
+  'să', 'sa',
+  'dar',
+  'iar',
+  'așa', 'asa'
+]);
+
+// FLUSH_AFTER: cuvântul ÎNCHEIE propoziția curentă - flush propoziția cu acest cuvânt inclus
+const FLUSH_AFTER_WORDS = new Set([
+  'că',
+  'ta', 'mea', 'lui', 'ei', 'noastră', 'noastra', 'voastră', 'voastra', 'lor'
 ]);
 
 function summarizeEvent(event) {
@@ -1674,13 +1693,26 @@ function shouldFlushBufferedText(text, options = {}) {
   if (!clean) return false;
   const words = countWords(clean);
   const last = getLastWord(clean);
+  const lastLower = String(last || '').toLowerCase();
   const minWords = options.minWords || LIVE_TEXT_MIN_WORDS;
   const targetWords = options.targetWords || LIVE_TEXT_TARGET_WORDS;
   const maxWords = options.maxWords || LIVE_TEXT_MAX_WORDS;
+
+  // 1. Punctuație finală (.!?) → flush dacă min words
   if (/[.!?]\s*$/.test(clean) && words >= minWords) return true;
+
+  // 2. Punctuație medie (,;:) → flush dacă min words
   if (/[,;:]\s*$/.test(clean) && words >= minWords) return true;
-  if (words >= targetWords && !BUFFER_CONNECTORS.has(last)) return true;
+
+  // 3. SMART FLUSH V1 - FLUSH_AFTER: ultimul cuvânt e „că" sau posesiv → flush imediat (cu min words)
+  if (FLUSH_AFTER_WORDS.has(lastLower) && words >= minWords) return true;
+
+  // 4. Target words atinse + ultimul cuvânt NU e conector clasic → flush
+  if (words >= targetWords && !BUFFER_CONNECTORS.has(lastLower)) return true;
+
+  // 5. Max words override (forțat oricum)
   if (words >= maxWords) return true;
+
   return false;
 }
 
@@ -3106,6 +3138,19 @@ function queueSpeechText(eventId, text, sourceLang = '', provider = getActiveSpe
   if (!clean) return;
   const event = db.events[eventId];
   if (event?.mode === 'song') return;
+
+  // SMART FLUSH V1: dacă noul text începe cu un cuvânt FLUSH_BEFORE,
+  // forțăm flush al buffer-ului ANTERIOR ÎNAINTE să adăugăm noul text
+  const newTextWords = String(text || '').trim().split(/\s+/);
+  const firstNewWord = String(newTextWords[0] || '').toLowerCase().replace(/[^\p{L}]/gu, '');
+
+  if (FLUSH_BEFORE_WORDS.has(firstNewWord)) {
+    const existingBuffer = speechBuffers.get(eventId);
+    if (existingBuffer && existingBuffer.text && countWords(existingBuffer.text) >= AZURE_LIVE_TEXT_MIN_WORDS) {
+      // Flush buffer existent - cuvântul nou va începe noul buffer
+      flushSpeechBuffer(eventId, true).catch(logger.error);
+    }
+  }
 
   const prev = speechBuffers.get(eventId) || { text: '', timer: null, startedAt: Date.now(), sourceLang, provider };
   const merged = mergeTranscriptText(prev.text, clean);
