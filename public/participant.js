@@ -8,6 +8,15 @@ const LIVE_ENTRY_MAX_DISPLAY_MS = 9000;
 const LIVE_ENTRY_MAX_QUEUE = 3;
 const LIVE_ENTRY_CATCHUP_MIN_MS = 1100;
 
+// SMART FLUSH V1.1: Display buffer pentru chunk merging + delay
+const displayBuffer = {
+  pendingText: null,         // text în așteptare de afișare
+  lastDisplayTime: 0,        // timestamp ultima afișare
+  pendingTimer: null,        // timer pentru afișare amânată
+  MERGE_WINDOW_MS: 1000,     // chunks în 1 sec se combină
+  MIN_DISPLAY_MS: 2000       // 2 sec minim între afișări
+};
+
 const voiceLocales = {
   ro: 'ro-RO',
   no: 'nb-NO',
@@ -691,6 +700,64 @@ function scrollLiveStageIntoView() {
   }, 120);
 }
 
+// SMART FLUSH V1.1: smart display function with chunk merging + display delay
+function smartDisplayLiveText(newText, callback) {
+  if (!newText || !String(newText).trim()) return;
+
+  const now = Date.now();
+  const timeSinceLastDisplay = now - displayBuffer.lastDisplayTime;
+
+  // Cancel any pending timer
+  if (displayBuffer.pendingTimer) {
+    clearTimeout(displayBuffer.pendingTimer);
+    displayBuffer.pendingTimer = null;
+  }
+
+  // SCENARIO 1: Foarte recent (< MERGE_WINDOW_MS) → merge cu textul curent
+  if (timeSinceLastDisplay < displayBuffer.MERGE_WINDOW_MS) {
+    const currentText = $('lastText')?.textContent || '';
+    // Verificăm că nu e un mesaj special (Bible Reading, Service ended, etc.)
+    const isSpecialMessage = currentText.includes('📖') || currentText.includes('Waiting') || currentText.includes('Vă așteptăm');
+
+    if (!isSpecialMessage && currentText) {
+      const mergedText = currentText.trim() + ' ' + String(newText).trim();
+      callback(mergedText);
+      displayBuffer.lastDisplayTime = now;
+      displayBuffer.pendingText = null;
+      return;
+    }
+  }
+
+  // SCENARIO 2: Display delay (între MERGE_WINDOW_MS și MIN_DISPLAY_MS)
+  // → buffer textul, afișează la MIN_DISPLAY_MS de la ultima afișare
+  if (timeSinceLastDisplay < displayBuffer.MIN_DISPLAY_MS) {
+    const waitMs = displayBuffer.MIN_DISPLAY_MS - timeSinceLastDisplay;
+
+    // Dacă deja avem ceva în pending, COMBINĂM (chunks în coadă merg la fel ca merging)
+    if (displayBuffer.pendingText) {
+      displayBuffer.pendingText = displayBuffer.pendingText + ' ' + String(newText).trim();
+    } else {
+      displayBuffer.pendingText = String(newText).trim();
+    }
+
+    // Programăm afișare în waitMs
+    displayBuffer.pendingTimer = setTimeout(() => {
+      if (displayBuffer.pendingText) {
+        callback(displayBuffer.pendingText);
+        displayBuffer.lastDisplayTime = Date.now();
+        displayBuffer.pendingText = null;
+        displayBuffer.pendingTimer = null;
+      }
+    }, waitMs);
+    return;
+  }
+
+  // SCENARIO 3: Mai mult de MIN_DISPLAY_MS de la ultima afișare → afișează instant
+  callback(String(newText).trim());
+  displayBuffer.lastDisplayTime = now;
+  displayBuffer.pendingText = null;
+}
+
 function renderLiveView({ announce = false } = {}) {
   if (!state.currentEvent) return;
   if (state.serviceEndedAcknowledged) {
@@ -712,7 +779,10 @@ function renderLiveView({ announce = false } = {}) {
   const visibleEntry = state.visibleLiveEntry || (state.allowTranscriptFallback ? getLatestEntry() : null);
   state.lastLiveEntryId = visibleEntry?.id || null;
   if (visibleEntry) {
-    $('lastText').innerHTML = highlightBibleRefs(getTextForEntry(visibleEntry));
+    // SMART FLUSH V1.1: wrap with smartDisplayLiveText for chunk merging + display delay
+    smartDisplayLiveText(getTextForEntry(visibleEntry), (text) => {
+      $('lastText').innerHTML = highlightBibleRefs(text);
+    });
   } else {
     $('lastText').textContent = 'Waiting for translation...';
   }
@@ -906,6 +976,13 @@ function formatServiceEndedTime(iso) {
 }
 
 function showServiceEndedOverlay(endedAt) {
+  // SMART FLUSH V1.1: cleanup display buffer când intră în mod special
+  if (displayBuffer.pendingTimer) {
+    clearTimeout(displayBuffer.pendingTimer);
+    displayBuffer.pendingTimer = null;
+  }
+  displayBuffer.pendingText = null;
+
   const overlay = $('participantServiceEnded');
   if (!overlay) return;
 
@@ -956,6 +1033,13 @@ function getBibleReadingText() {
 let bibleReadingLiveTextActive = false;
 
 function showBibleReadingOverlay() {
+  // SMART FLUSH V1.1: cleanup display buffer când intră în mod special
+  if (displayBuffer.pendingTimer) {
+    clearTimeout(displayBuffer.pendingTimer);
+    displayBuffer.pendingTimer = null;
+  }
+  displayBuffer.pendingText = null;
+
   // Bottom subtle bar with subtitle (doar instrucțiunea)
   let bottomBar = document.getElementById('participantBibleReadingBottom');
   if (!bottomBar) {
