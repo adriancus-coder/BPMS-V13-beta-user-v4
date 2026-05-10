@@ -473,7 +473,10 @@
                   <select id="songJumpSelect"></select>
                 </div>
               </div>
-              <div class="label">Song preview</div>
+              <div class="label song-preview-head">
+                Song preview
+                <button id="editLiveVerseBtn" class="btn btn-dark song-edit-verse-btn" type="button" hidden>✎ Edit current verse</button>
+              </div>
               <div id="songPreview" class="song-preview">Song text will appear here.</div>
               <div id="songBlocksList" class="history-list song-section-list">
                 <div class="muted">Use Save in library or Send first verse.</div>
@@ -638,6 +641,7 @@
                 <div class="button-row">
                   <button id="saveSongBtn" class="btn btn-dark">Save to church library</button>
                   <button id="sendSongBtn" class="btn btn-primary">Send first verse</button>
+                  <button id="clearSongEditorBtn" class="btn btn-light" type="button">🗑 Clear Editor</button>
                 </div>
               </div>
             </details>
@@ -881,6 +885,26 @@
       <div class="qr-modal-actions">
         <button id="qrModalCopyBtn" class="btn btn-dark" type="button">📋 Copy link</button>
         <button id="qrModalDownloadBtn" class="btn btn-primary" type="button">⬇ Download QR</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- FEATURE 3: Edit Live Verse Modal -->
+  <div id="editLiveVerseModal" class="edit-verse-modal" hidden role="dialog" aria-labelledby="editLiveVerseTitle" aria-modal="true">
+    <div class="edit-verse-backdrop" data-edit-verse-close></div>
+    <div class="edit-verse-card">
+      <div class="edit-verse-head">
+        <h3 id="editLiveVerseTitle">Edit current verse</h3>
+        <button class="edit-verse-close" data-edit-verse-close type="button" aria-label="Close">×</button>
+      </div>
+      <div class="edit-verse-body">
+        <p class="muted small">This verse is live now on Main Screen. Changes will not appear on screen until you save.</p>
+        <textarea id="editLiveVerseText" rows="8" placeholder="Edit verse text..."></textarea>
+      </div>
+      <div class="edit-verse-foot">
+        <button id="cancelEditVerseBtn" class="btn btn-light" type="button">Cancel</button>
+        <button id="saveEditVerseBtn" class="btn btn-dark" type="button">Save (current only)</button>
+        <button id="saveEditVerseLibraryBtn" class="btn btn-primary" type="button">Save &amp; Update Library</button>
       </div>
     </div>
   </div>

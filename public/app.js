@@ -4,6 +4,9 @@ const $ = (id) => document.getElementById(id);
 let currentEvent = null;
 window.partialTranscriptHistory = [];
 let lastPartialCaptured = '';
+// FEATURE 1: Tracking strofe afișate per cântec (reset la cântec nou)
+let displayedSongBlocks = new Set();  // indici strofe deja afișate
+let currentSongTitle = '';  // pentru a detecta schimb cântec
 let currentGlobalSongLibrary = [];
 let currentPinnedTextLibrary = [];
 let availableEventsList = [];
@@ -1409,9 +1412,23 @@ function renderSongState(songState) {
   const activeBlock = typeof songState?.activeBlock === 'string' ? songState.activeBlock : '';
   const sourceLang = songState?.sourceLang || getSongSourceLang();
 
+  // FEATURE 1: Reset displayedSongBlocks la cântec nou
+  const incomingTitle = String(songState?.title || '');
+  if (incomingTitle !== currentSongTitle) {
+    displayedSongBlocks = new Set();
+    currentSongTitle = incomingTitle;
+  }
+  // Strofa curentă este (sau a fost) afișată
+  if (currentIndex >= 0) {
+    displayedSongBlocks.add(currentIndex);
+  }
+
   summaryEl.textContent = `Saved: ${libraryCount} · History: ${historyCount} · Language: ${langLabel(sourceLang)}`;
   previewEl.textContent = activeBlock || currentEvent?.displayState?.manualSource || 'Song text will appear here.';
   renderSongJumpSelect(blocks, labels, currentIndex);
+
+  // FEATURE 3: Show Edit button if song is active
+  if (typeof showEditLiveVerseBtn === 'function') showEditLiveVerseBtn(!!activeBlock);
 
   if (!blocks.length) {
     blocksEl.innerHTML = '<div class="muted">Use Save in library or Send first verse live.</div>';
@@ -1420,13 +1437,15 @@ function renderSongState(songState) {
 
   blocksEl.innerHTML = blocks.map((block, index) => {
     const activeClass = index === currentIndex ? ' active' : '';
+    // FEATURE 1: marker strofe deja afișate (dar nu activa)
+    const displayedClass = displayedSongBlocks.has(index) && index !== currentIndex ? ' already-displayed' : '';
     const label = escapeHtml(labels[index] || `Verse ${index + 1}`);
     // Preview scurt: doar prima linie de text (max 80 caractere) pentru identificare rapidă
     const firstLine = (block || '').split('\n')[0] || '';
     const preview = firstLine.length > 80 ? firstLine.slice(0, 80) + '...' : firstLine;
     return `
-      <div class="song-section-item-wrap${activeClass}">
-        <button class="history-item song-section-item${activeClass}" type="button" data-song-block-index="${index}">
+      <div class="song-section-item-wrap${activeClass}${displayedClass}">
+        <button class="history-item song-section-item${activeClass}${displayedClass}" type="button" data-song-block-index="${index}">
           <div class="entry-head">
             <b>${label}</b>
             <span class="small">${index === currentIndex ? 'Live now' : 'Click to send live'}</span>
@@ -1639,6 +1658,19 @@ async function goToPrevSongBlock() {
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
   setStatus('Moved to previous verse.');
+}
+
+// FEATURE 2: Wrapper care confirmă cu admin înainte de a comuta pe Live Text.
+async function setDisplayModeWithConfirmation(mode) {
+  if (mode === 'auto') {
+    const confirmed = window.confirm(
+      'Live Text on Main Screen is unusual.\n\n' +
+      'Main Screen is typically for Song display.\n\n' +
+      'Are you sure you want to show Live Text on the projector?'
+    );
+    if (!confirmed) return;
+  }
+  return setDisplayMode(mode);
 }
 
 async function setDisplayMode(mode) {
@@ -2978,6 +3010,57 @@ async function clearSong() {
   setStatus('Editor cleared.');
 }
 
+// FEATURE 3: Edit Live Verse logic
+function showEditLiveVerseBtn(visible) {
+  const btn = $('editLiveVerseBtn');
+  if (btn) btn.hidden = !visible;
+}
+
+function openEditLiveVerseModal() {
+  const songState = currentEvent?.songState;
+  if (!songState || !songState.activeBlock) return alert('No active verse to edit.');
+  $('editLiveVerseText').value = songState.activeBlock;
+  $('editLiveVerseModal').hidden = false;
+  setTimeout(() => { $('editLiveVerseText')?.focus(); }, 50);
+}
+
+function closeEditLiveVerseModal() {
+  const modal = $('editLiveVerseModal');
+  if (modal) modal.hidden = true;
+}
+
+async function saveEditedVerse(updateLibrary) {
+  if (!currentEvent) return alert('Open an event first.');
+  const newText = $('editLiveVerseText').value.trim();
+  if (!newText) return alert('Verse text cannot be empty.');
+
+  if (updateLibrary) {
+    const confirmed = window.confirm(
+      'This will update the original song in the church library.\n\n' +
+      'The change will be saved permanently. Continue?'
+    );
+    if (!confirmed) return;
+  }
+
+  const res = await fetch(`/api/events/${currentEvent.id}/song/edit-active-block`, adminJsonOptions('POST', {
+    newText,
+    updateLibrary: !!updateLibrary
+  }));
+  const data = await res.json();
+  if (!data.ok) return alert(data.error || 'Could not save edited verse.');
+
+  if (data.event) currentEvent = data.event;
+  currentEvent.songState = data.songState || currentEvent.songState;
+  if (Array.isArray(data.globalSongLibrary)) {
+    currentGlobalSongLibrary = data.globalSongLibrary;
+    renderGlobalSongLibrary(currentGlobalSongLibrary);
+  }
+
+  renderSongState(currentEvent.songState || {});
+  closeEditLiveVerseModal();
+  setStatus(updateLibrary ? 'Verse updated and saved to library.' : 'Verse updated for current event only.');
+}
+
 
 socket.on('joined_event', ({ event, role }) => {
   if (role !== 'admin') return;
@@ -3682,7 +3765,8 @@ $('songClearBtn')?.addEventListener('click', async () => {
   }
 });
 $('displayRestoreBtn').addEventListener('click', restoreLastDisplayState);
-  $('displayAutoBtn').addEventListener('click', () => setDisplayMode('auto'));
+  // FEATURE 2: Confirmare pentru Live Text (mod neobișnuit pentru Main Screen)
+  $('displayAutoBtn').addEventListener('click', () => setDisplayModeWithConfirmation('auto'));
   $('displayManualBtn').addEventListener('click', () => setDisplayMode('manual'));
   $('displaySongBtn').addEventListener('click', () => setDisplayMode('song'));
   $('displayThemeSelect').addEventListener('change', () => setDisplayTheme($('displayThemeSelect').value));
@@ -3762,6 +3846,48 @@ $('songBlocksList')?.addEventListener('change', async (e) => {
   if (!e.target.matches('[data-song-label-input]')) return;
   await saveSongLabels();
 });
+
+// FEATURE 6: Auto-titlu din prima linie scurtă la paste
+$('songText')?.addEventListener('paste', () => {
+  setTimeout(() => {
+    const titleEl = $('songTitle');
+    if (!titleEl) return;
+    const currentTitle = titleEl.value.trim();
+    // Doar dacă titlul e GOL (nu suprascrie)
+    if (currentTitle) return;
+    const text = $('songText').value.trim();
+    if (!text) return;
+    // Prima linie non-goală
+    const firstLine = text.split('\n').find((line) => line.trim().length > 0)?.trim() || '';
+    // Verifică dacă e probabil titlu (scurt, < 60 chars)
+    if (firstLine.length > 0 && firstLine.length < 60) {
+      titleEl.value = firstLine;
+      setStatus('Title auto-filled from first line.');
+    }
+  }, 50);
+});
+
+// FEATURE 5: Clear song editor button
+function clearSongEditor() {
+  if (typeof clearSong === 'function') {
+    clearSong();
+  } else {
+    $('songTitle').value = '';
+    $('songText').value = '';
+    if ($('songSourceLang')) $('songSourceLang').value = currentEvent?.sourceLang || 'ro';
+  }
+  setStatus('Editor cleared.');
+}
+$('clearSongEditorBtn')?.addEventListener('click', clearSongEditor);
+
+// FEATURE 3: Edit Live Verse handlers
+$('editLiveVerseBtn')?.addEventListener('click', openEditLiveVerseModal);
+$('cancelEditVerseBtn')?.addEventListener('click', closeEditLiveVerseModal);
+$('saveEditVerseBtn')?.addEventListener('click', () => saveEditedVerse(false));
+$('saveEditVerseLibraryBtn')?.addEventListener('click', () => saveEditedVerse(true));
+document.querySelectorAll('[data-edit-verse-close]').forEach((el) => {
+  el.addEventListener('click', closeEditLiveVerseModal);
+});
 $('globalSongLibraryList').addEventListener('click', async (e) => {
   const summary = e.target.closest('.library-card-summary');
   if (summary) return;
@@ -3778,7 +3904,8 @@ $('globalSongLibraryList').addEventListener('click', async (e) => {
   }
   if (action === 'send') {
     if (!currentEvent) return alert('Open or create an event first.');
-    fillSongEditor(item);
+    // FEATURE 7 BUGFIX: NU mai umplem editor-ul când trimitem la Live.
+    // Send la Live = action separat de Edit. Editor-ul rămâne curat pentru cântec NOU.
     await sendSongItemToLive(item);
     return;
   }

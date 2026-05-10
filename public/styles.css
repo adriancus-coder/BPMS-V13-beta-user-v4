@@ -4814,6 +4814,23 @@ body.participant-preview-mode .participant-event-chooser {
   background: rgba(244, 221, 171, 0.1);
 }
 
+/* FEATURE 1: Strofe deja afișate */
+.song-section-item.already-displayed {
+  opacity: 0.5;
+  background: rgba(212, 165, 116, 0.05);
+  position: relative;
+}
+
+.song-section-item.already-displayed::before {
+  content: '✓';
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  color: rgba(212, 165, 116, 0.6);
+  font-size: 1.1em;
+  font-weight: bold;
+}
+
 .song-control-action-row {
   display: flex;
   gap: 8px;
@@ -5433,4 +5450,105 @@ body.participant-preview-mode .participant-event-chooser {
   align-items: center;
   justify-content: center;
   min-height: 80px;
+}
+
+/* FEATURE 3: Edit Live Verse Modal */
+.song-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.song-edit-verse-btn {
+  padding: 4px 12px;
+  font-size: 0.85rem;
+  min-height: 32px;
+}
+
+.edit-verse-modal[hidden] { display: none; }
+
+.edit-verse-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.edit-verse-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  cursor: pointer;
+}
+
+.edit-verse-card {
+  position: relative;
+  background: linear-gradient(180deg, rgba(18, 21, 27, 0.98), rgba(11, 13, 18, 0.98));
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 24px;
+  width: 92%;
+  max-width: 640px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+  animation: qrModalEnter 240ms ease both;
+}
+
+.edit-verse-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.edit-verse-head h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  color: var(--text);
+}
+
+.edit-verse-close {
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 1.2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 180ms ease;
+}
+
+.edit-verse-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.edit-verse-body textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.45;
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  resize: vertical;
+  min-height: 180px;
+}
+
+.edit-verse-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
 }

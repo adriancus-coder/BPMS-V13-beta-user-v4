@@ -548,9 +548,21 @@ function registerEventRoutes(app, ctx) {
     const event = db.events[req.params.id];
     if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
     if (!requireEventAdmin(req, res, event)) return;
-    setActiveEventIdForOrg(getEventOrgId(event), event.id);
+    const orgId = getEventOrgId(event);
+    // FEATURE 2: Default Black Screen pe pornire serviciu.
+    // Doar dacă evenimentul NU era deja active (real "start service", nu re-activare în timpul serviciului).
+    const wasAlreadyActive = getActiveEventIdForOrg(orgId) === event.id;
+    setActiveEventIdForOrg(orgId, event.id);
+    if (!wasAlreadyActive) {
+      ensureEventUiState(event);
+      rememberDisplayState(event);
+      event.displayState.blackScreen = true;
+      event.displayState.sceneLabel = '';
+      event.displayState.updatedAt = new Date().toISOString();
+      io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
+    }
     if (typeof recordAudit === 'function') {
-      recordAudit(getEventOrgId(event), 'event_set_live', { eventId: event.id, name: event.name });
+      recordAudit(orgId, 'event_set_live', { eventId: event.id, name: event.name });
     }
     saveDb();
     io.emit('active_event_changed', { eventId: event.id });
@@ -860,6 +872,86 @@ function registerEventRoutes(app, ctx) {
     io.to(`event:${event.id}`).emit('song_state', event.songState);
     res.json({ ok: true, songState: event.songState });
     saveDb();
+  });
+
+  // FEATURE 3+4: Edit the currently active song block, with optional library update.
+  // Cache (translationsByHash) is content-addressed so new text auto-misses old cache;
+  // when updateLibrary is true we also persist the new block translations into the library cache.
+  app.post('/api/events/:id/song/edit-active-block', async (req, res) => {
+    const event = db.events[req.params.id];
+    if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
+    if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
+    if (!requireEventPermission(req, res, 'song')) return;
+
+    const newText = sanitizeStructuredText(req.body.newText || '').trim();
+    if (!newText) return res.status(400).json({ ok: false, error: 'newText required' });
+    const updateLibrary = !!req.body.updateLibrary;
+
+    const songState = event.songState;
+    if (!songState || !Array.isArray(songState.blocks) || !songState.blocks.length) {
+      return res.status(400).json({ ok: false, error: 'No active song to edit.' });
+    }
+    const currentIndex = Number.isInteger(songState.currentIndex) ? songState.currentIndex : -1;
+    if (currentIndex < 0 || currentIndex >= songState.blocks.length) {
+      return res.status(400).json({ ok: false, error: 'No active block to edit.' });
+    }
+
+    songState.blocks[currentIndex] = newText;
+    songState.activeBlock = newText;
+    const songSourceLang = String(songState.sourceLang || event.sourceLang || 'ro').trim() || 'ro';
+
+    // FEATURE 4: invalidate translations cache pentru blocul editat.
+    // Forțăm re-traducere doar a blocului curent (nu pierdem traducerile pentru celelalte strofe).
+    if (!Array.isArray(songState.allTranslations)) {
+      songState.allTranslations = songState.blocks.map(() => ({}));
+    }
+    songState.allTranslations[currentIndex] = {};
+    songState.translations = {};
+
+    let updatedLibrary = null;
+    try {
+      // Caut entry-ul în library pentru a re-folosi cache-ul (titlu normalizat).
+      const orgId = getEventOrgId(event);
+      const orgLibrary = getOrganizationSongLibrary(orgId) || [];
+      const normalizedTitle = normalizeLibraryTitle(songState.title || '');
+      const libIdx = normalizedTitle
+        ? orgLibrary.findIndex((item) => item && normalizeLibraryTitle(item.title) === normalizedTitle)
+        : -1;
+      const cachedSong = libIdx >= 0 ? orgLibrary[libIdx] : null;
+      const songCache = (cachedSong && typeof cachedSong.translationsByHash === 'object' && cachedSong.translationsByHash)
+                        ? cachedSong.translationsByHash : {};
+
+      const result = await buildSongTranslations(event, [newText], songSourceLang, songCache);
+      const blockTranslations = result.allTranslations[0] || {};
+      songState.allTranslations[currentIndex] = blockTranslations;
+      songState.translations = blockTranslations;
+      songState.updatedAt = new Date().toISOString();
+
+      if (updateLibrary && libIdx >= 0) {
+        // Reconstruim textul complet din blocks + persistăm noile traduceri în cache-ul library-ului.
+        orgLibrary[libIdx].text = songState.blocks.join('\n\n');
+        if (Array.isArray(songState.blockLabels)) {
+          orgLibrary[libIdx].labels = songState.blockLabels.slice();
+        }
+        const mergedCache = { ...songCache, ...result.cacheUpdates };
+        orgLibrary[libIdx].translationsByHash = mergedCache;
+        orgLibrary[libIdx].updatedAt = new Date().toISOString();
+        updatedLibrary = orgLibrary;
+      }
+
+      saveDb();
+      io.to(`event:${event.id}`).emit('song_state', event.songState);
+
+      res.json({
+        ok: true,
+        event: normalizeEventForAccess(req, event),
+        songState: event.songState,
+        globalSongLibrary: updatedLibrary
+      });
+    } catch (err) {
+      logger.error('song edit-active-block error:', err);
+      res.status(500).json({ ok: false, error: 'Could not save edited verse.' });
+    }
   });
 
   app.post('/api/events/:id/song/clear', (req, res) => {
