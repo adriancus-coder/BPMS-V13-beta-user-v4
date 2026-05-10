@@ -13,8 +13,8 @@ const displayBuffer = {
   pendingText: null,         // text în așteptare de afișare
   lastDisplayTime: 0,        // timestamp ultima afișare
   pendingTimer: null,        // timer pentru afișare amânată
-  MERGE_WINDOW_MS: 1000,     // chunks în 1 sec se combină
-  MIN_DISPLAY_MS: 2000       // 2 sec minim între afișări
+  MERGE_WINDOW_MS: 2000,     // chunks în 2 sec se combină
+  MIN_DISPLAY_MS: 3000       // 3 sec minim între afișări
 };
 
 const voiceLocales = {
