@@ -2422,19 +2422,60 @@ const TRANSLATION_CACHE_FILE = path.join(DATA_DIR, 'translation-cache.json');
 let translationCacheDirty = false;
 let translationCacheFlushTimer = null;
 
+// BUGFIX V5: append-only log of OpenAI language-mismatch events for investigation
+// (max 500 entries, oldest pruned). Helps diagnose what prompt/text triggers the model to drift.
+const LANG_MISMATCH_LOG_FILE = path.join(DATA_DIR, 'lang-mismatch-log.json');
+const LANG_MISMATCH_LOG_LIMIT = 500;
+
+function logLangMismatch(entry) {
+  try {
+    let log = [];
+    if (fs.existsSync(LANG_MISMATCH_LOG_FILE)) {
+      try {
+        const raw = fs.readFileSync(LANG_MISMATCH_LOG_FILE, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) log = parsed;
+      } catch (parseErr) {
+        logger.warn('lang-mismatch log parse failed, starting fresh:', parseErr?.message || parseErr);
+      }
+    }
+    log.push({ ts: new Date().toISOString(), ...entry });
+    if (log.length > LANG_MISMATCH_LOG_LIMIT) log = log.slice(-LANG_MISMATCH_LOG_LIMIT);
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(LANG_MISMATCH_LOG_FILE, JSON.stringify(log), 'utf8');
+  } catch (err) {
+    logger.warn('lang-mismatch log write failed:', err?.message || err);
+  }
+}
+
 function loadPersistentTranslationCache() {
   try {
     if (!fs.existsSync(TRANSLATION_CACHE_FILE)) return;
     const raw = fs.readFileSync(TRANSLATION_CACHE_FILE, 'utf8');
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      let loaded = 0;
+      // BUGFIX V5: dedupe by key BEFORE applying the cache limit — duplicate writes from
+      // previous concurrent-server races shouldn't eat into the 2000-entry budget.
+      // Last value wins (most recent write is kept), matching Map.set semantics.
+      const dedupMap = new Map();
+      let duplicates = 0;
       for (const pair of parsed) {
         if (Array.isArray(pair) && pair.length === 2 && pair[0] && pair[1]) {
-          translationCache.set(String(pair[0]), String(pair[1]));
-          loaded += 1;
-          if (translationCache.size >= TRANSLATION_CACHE_LIMIT) break;
+          const key = String(pair[0]);
+          if (dedupMap.has(key)) duplicates += 1;
+          dedupMap.set(key, String(pair[1]));
         }
+      }
+      let loaded = 0;
+      for (const [key, value] of dedupMap) {
+        translationCache.set(key, value);
+        loaded += 1;
+        if (translationCache.size >= TRANSLATION_CACHE_LIMIT) break;
+      }
+      if (duplicates) {
+        logger.info(`translation cache: removed ${duplicates} duplicate keys at load`);
+        translationCacheDirty = true;
+        scheduleTranslationCacheFlush();
       }
       logger.info(`translation cache: restored ${loaded} entries from disk`);
     }
@@ -2694,8 +2735,88 @@ async function translateText(text, langCode, event, sourceLangOverride = '', opt
     }
     const translatedText = result.text;
     if (result.tokens) recordTranslationUsage(event, result.tokens);
-    const translated = sanitizeStructuredText(translatedText);
+    let translated = sanitizeStructuredText(translatedText);
+
+    // BUGFIX V5: validate target language. On high-confidence mismatch, retry once with explicit
+    // language constraint (non-streaming only — streaming has already pushed deltas to the client).
+    // If retry still wrong → skip cache write so the bad text doesn't poison cache for next requests;
+    // return '' so V3 frontend shows loading dots instead of source-language fallback.
+    let langValidationOk = true;
     if (translated) {
+      const detected = detectLanguage(translated);
+      if (detected.lang !== 'unknown' && detected.lang !== langCode && detected.confidence === 'high') {
+        const targetLangName = LANGUAGES[langCode] || langCode;
+        console.warn(`[LANG_MISMATCH] expected=${langCode} (${targetLangName}) detected=${detected.lang} src="${cleanText.slice(0, 80)}" out="${translated.slice(0, 80)}"`);
+        logLangMismatch({
+          stage: 'initial',
+          expectedLang: langCode,
+          expectedLangName: targetLangName,
+          detectedLang: detected.lang,
+          detectedConfidence: detected.confidence,
+          sourceLang,
+          sourceText: cleanText.slice(0, 500),
+          badText: translated.slice(0, 500),
+          cacheKey: cacheKey.slice(0, 200),
+          streaming: !!options.onDelta
+        });
+
+        if (!options.onDelta) {
+          // Non-streaming: retry with explicit language constraint
+          try {
+            const retryMessages = [
+              inputMessages[0],
+              {
+                role: 'system',
+                content: `IMPORTANT: Respond ONLY in ${targetLangName}. Do NOT output any other language. The user explicitly requires ${targetLangName}.`
+              },
+              ...inputMessages.slice(1)
+            ];
+            const retryResult = await translationService.translateWithResponsesDetailed({
+              model: OPENAI_MODEL,
+              input: retryMessages
+            });
+            if (retryResult.tokens) recordTranslationUsage(event, retryResult.tokens);
+            const retryText = sanitizeStructuredText(retryResult.text || '');
+            const retryDetected = retryText ? detectLanguage(retryText) : { lang: 'unknown', confidence: 'low' };
+            if (retryText && (retryDetected.lang === langCode || retryDetected.lang === 'unknown')) {
+              // Retry succeeded (right language, or text too short to validate confidently)
+              translated = retryText;
+              logLangMismatch({
+                stage: 'retry-success',
+                expectedLang: langCode,
+                detectedLang: retryDetected.lang,
+                detectedConfidence: retryDetected.confidence,
+                retriedText: retryText.slice(0, 200)
+              });
+            } else {
+              // Retry still wrong — refuse to cache, return empty
+              langValidationOk = false;
+              logLangMismatch({
+                stage: 'retry-failed',
+                expectedLang: langCode,
+                detectedLang: retryDetected.lang,
+                detectedConfidence: retryDetected.confidence,
+                retriedText: retryText.slice(0, 200)
+              });
+              console.warn(`[LANG_MISMATCH] retry failed for ${langCode}, returning empty (V3 frontend will show loading dots)`);
+            }
+          } catch (retryErr) {
+            langValidationOk = false;
+            logger.warn(`lang-mismatch retry error ${langCode}:`, retryErr?.message || retryErr);
+            logLangMismatch({
+              stage: 'retry-error',
+              expectedLang: langCode,
+              error: String(retryErr?.message || retryErr)
+            });
+          }
+        } else {
+          // Streaming: client already saw bad deltas; skip cache write to prevent poisoning future requests
+          langValidationOk = false;
+        }
+      }
+    }
+
+    if (translated && langValidationOk) {
       writeTranslationCache(cacheKey, translated);
       updateTranslationMonitor(event, {
         pendingTranslations: Math.max(0, Number(event.translationMonitor?.pendingTranslations || 1) - 1),
@@ -2704,6 +2825,18 @@ async function translateText(text, langCode, event, sourceLangOverride = '', opt
         lastTargetLang: langCode
       });
       return translated;
+    }
+    if (!langValidationOk) {
+      // BUGFIX V5: bad-language translation refused. Skip cache write, return empty string.
+      // V3 frontend (participant.js / translate.js / remote.js) treats '' as "not yet translated"
+      // and shows loading dots instead of the source-language fallback.
+      updateTranslationMonitor(event, {
+        pendingTranslations: Math.max(0, Number(event.translationMonitor?.pendingTranslations || 1) - 1),
+        lastTranslateFinishedAt: new Date().toISOString(),
+        lastTranslateDurationMs: Date.now() - startedAt,
+        lastTargetLang: langCode
+      });
+      return '';
     }
     const fallback = applyGlossary(cleanText, glossary);
     writeTranslationCache(cacheKey, fallback);
@@ -2737,6 +2870,63 @@ function detectSourceLangByScript(text) {
   if (/[æøåÆØÅ]/.test(sample)) return 'no';
   if (/[ăâîșşțţĂÂÎȘŞȚŢ]/.test(sample)) return 'ro';
   return '';
+}
+
+// BUGFIX V5: agnostic language detector for short-medium texts (1-300 words).
+// Heuristic-based (no extra deps): combines script signals (cyrillic, nordic, romanian, polish, hungarian)
+// with word-list scoring for latin-script languages without unique diacritics (en/es/fr/it/pt).
+// Returns { lang, confidence: 'low'|'medium'|'high' }. Returns 'unknown' when no clear signal — never
+// flags ambiguous text. Designed so adding new languages = extend LANG_DETECT_WORDS or add a script
+// regex above the word-list pass; no consumer refactor needed.
+const LANG_DETECT_WORDS = {
+  en: ['the','and','you','we','our','is','are','to','of','in','for','on','with','that','have','it','this','be','from','will','your'],
+  no: ['og','er','vi','ikke','jeg','det','en','et','på','til','av','som','har','i','de','for','men','han','hun','vår','være'],
+  es: ['el','la','los','las','que','de','y','en','un','una','es','con','por','para','no','su','se','del','al','tu','nuestro'],
+  fr: ['le','la','les','que','de','et','en','un','une','est','dans','pour','avec','nous','vous','sur','ce','je','pas','votre','notre'],
+  it: ['il','la','di','che','e','un','una','è','per','con','da','non','sono','noi','voi','ti','si','gli','le','nostro'],
+  pt: ['o','a','os','as','que','de','e','um','uma','é','com','para','não','nós','você','seu','sua','do','da','no','na','nosso']
+};
+
+function detectLanguage(text) {
+  const sample = String(text || '').trim();
+  if (sample.length < 15) return { lang: 'unknown', confidence: 'low' };
+
+  // Strong script signals first (high confidence — these characters don't appear elsewhere)
+  if (/[؀-ۿ]/.test(sample)) return { lang: 'ar', confidence: 'high' };
+  if (/[Ͱ-Ͽ]/.test(sample)) return { lang: 'el', confidence: 'high' };
+  if (/[Ѐ-ӿ]/.test(sample)) {
+    // Distinguish Ukrainian (has ґєіїҐЄІЇ) from Russian
+    if (/[ҐґЄєІіЇї]/.test(sample)) return { lang: 'uk', confidence: 'high' };
+    return { lang: 'ru', confidence: 'high' };
+  }
+  if (/[æøåÆØÅ]/.test(sample)) return { lang: 'no', confidence: 'high' };
+  if (/[ăâîșşțţĂÂÎȘŞȚŢ]/.test(sample)) return { lang: 'ro', confidence: 'high' };
+  if (/[ąęłńóśźżĄĘŁŃÓŚŹŻ]/.test(sample)) return { lang: 'pl', confidence: 'high' };
+  if (/[őűŐŰ]/.test(sample)) return { lang: 'hu', confidence: 'high' };
+  // German umlauts can appear in loan words too — medium confidence only
+  if (/[äöüÄÖÜß]/.test(sample)) return { lang: 'de', confidence: 'medium' };
+
+  // Word-list pass for latin-script languages without unique diacritics (en/es/fr/it/pt)
+  const lower = sample.toLowerCase();
+  const words = lower.split(/[^a-zàâçéèêëîïôûùüÿñæœ]+/i).filter((w) => w.length > 0);
+  if (words.length < 3) return { lang: 'unknown', confidence: 'low' };
+
+  const scores = {};
+  for (const [lang, set] of Object.entries(LANG_DETECT_WORDS)) {
+    const setLookup = new Set(set);
+    scores[lang] = words.filter((w) => setLookup.has(w)).length;
+  }
+  let bestLang = 'unknown';
+  let bestScore = 0;
+  for (const [lang, score] of Object.entries(scores)) {
+    if (score > bestScore) { bestScore = score; bestLang = lang; }
+  }
+  const sorted = Object.values(scores).sort((a, b) => b - a);
+  const gap = sorted[0] - (sorted[1] || 0);
+  const density = bestScore / words.length;
+  if (bestScore >= 3 && density > 0.15 && gap >= 2) return { lang: bestLang, confidence: 'high' };
+  if (bestScore >= 2 && density > 0.1) return { lang: bestLang, confidence: 'medium' };
+  return { lang: 'unknown', confidence: 'low' };
 }
 
 async function detectSourceLanguage(text, event) {
