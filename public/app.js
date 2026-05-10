@@ -3755,11 +3755,12 @@ $('songClearBtn')?.addEventListener('click', async () => {
       return;
     }
     currentEvent = data.event || currentEvent;
-    currentEvent.mode = 'live';
+    // BUGFIX V2 FIX B: Clear merge la Black Screen (sigur), NU la Live Text.
+    // Vechi: `currentEvent.mode = 'live'` lăsa Main Screen pe Live Text (mod neobișnuit pentru proiector).
+    // Acum: forțăm Black Screen explicit. Admin trebuie să confirme manual dacă vrea Live Text (Feature 2 popup).
     renderSongState({});
-    refreshDisplayControls();
-    renderActiveEventBadge(currentEvent);
-    setStatus('Song cleared. Ready for next song.');
+    await blankMainScreen();
+    setStatus('Song cleared. Main screen set to black.');
   } catch (err) {
     alert(err.message || 'Could not clear song.');
   }
@@ -3858,7 +3859,16 @@ $('songText')?.addEventListener('paste', () => {
     const text = $('songText').value.trim();
     if (!text) return;
     // Prima linie non-goală
-    const firstLine = text.split('\n').find((line) => line.trim().length > 0)?.trim() || '';
+    let firstLine = text.split('\n').find((line) => line.trim().length > 0)?.trim() || '';
+
+    // BUGFIX V2 FIX A: cleanup prefix + suffix pentru titluri „1. Doamne...", „2) Slăvit fie..." etc.
+    // 1. Remove prefix: numere + punct/paranteză (ex „1.", „1)", „12.", „12)")
+    firstLine = firstLine.replace(/^\s*\d+[\.\)]\s*/, '');
+    // 2. Remove suffix: orice punctuație finală (. , ; : ! ?)
+    firstLine = firstLine.replace(/[\.\,\;\:\!\?]+\s*$/, '');
+    // 3. Trim spații extra (interne și marginale)
+    firstLine = firstLine.replace(/\s+/g, ' ').trim();
+
     // Verifică dacă e probabil titlu (scurt, < 60 chars)
     if (firstLine.length > 0 && firstLine.length < 60) {
       titleEl.value = firstLine;
