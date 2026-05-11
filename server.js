@@ -5044,6 +5044,7 @@ registerEventRoutes(app, {
   ensureEventAccessLinks,
   ensureEventUiState,
   getActiveEventIdForOrg,
+  getDefaultOrganization,
   getDisplayLanguageChoices,
   getEventOrgId,
   getOrganizationEvents,
