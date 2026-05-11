@@ -5027,6 +5027,7 @@ registerEventRoutes(app, {
   applyDisplaySnapshot,
   applySourceCorrections,
   buildBaseUrl,
+  buildBlockLabels,
   buildDisplayPayload,
   buildPublicOrganization,
   buildSongTranslations,

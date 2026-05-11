@@ -21,6 +21,7 @@ function registerEventRoutes(app, ctx) {
     applyDisplaySnapshot,
     applySourceCorrections,
     buildBaseUrl,
+    buildBlockLabels,
     buildDisplayPayload,
     buildPublicOrganization,
     buildSongTranslations,
