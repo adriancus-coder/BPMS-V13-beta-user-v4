@@ -39,6 +39,7 @@ function registerEventRoutes(app, ctx) {
     getActiveEventIdForOrg,
     getDisplayLanguageChoices,
     getEventOrgId,
+    getDefaultOrganization,
     getOrganizationEvents,
     getOrganizationForEvent,
     getOrganizationMemory,
