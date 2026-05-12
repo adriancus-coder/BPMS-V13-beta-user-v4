@@ -865,6 +865,25 @@ progress::-moz-progress-bar {
   border-color: transparent;
 }
 
+/* V9.1: scoped red override for Library Delete buttons. The app's default .btn-danger uses
+   the orange-leaning --danger #d95a16 (consistent with End service / Panic / etc.). For the
+   2 Library card Delete buttons (Pinned + Song Library) we want a stronger red signal because
+   they delete user content permanently. Other .btn-danger usages stay orange (unchanged). */
+.btn-danger[data-global-song-action="delete"],
+.btn-danger[data-manual-library-action="delete"] {
+  background:
+    radial-gradient(circle at top center, rgba(255, 220, 220, 0.18), transparent 58%),
+    linear-gradient(135deg, #ef4444, #b91c1c);
+  color: #fff;
+}
+
+.btn-danger[data-global-song-action="delete"]:hover,
+.btn-danger[data-manual-library-action="delete"]:hover {
+  background:
+    radial-gradient(circle at top center, rgba(255, 220, 220, 0.24), transparent 58%),
+    linear-gradient(135deg, #dc2626, #991b1b);
+}
+
 .btn:hover {
   filter: saturate(1.04);
 }
