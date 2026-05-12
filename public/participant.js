@@ -1422,6 +1422,11 @@ socket.on('display_mode_changed', (payload) => {
     ...payload
   };
   if ((payload?.mode || '') === 'auto') {
+    // V11.1: when song_clear just fired, the server emits display_mode_changed mode='auto'
+    // as part of the same flow. Without suppression, this would set allowTranscriptFallback=true
+    // and render the latest stale transcript — overriding the "show 3-dot loader until fresh
+    // entry" intent. 3-second suppression window lets the song_clear visual settle first.
+    if (state.suppressTranscriptFallback) return;
     state.awaitingFreshLiveEntry = false;
     state.freshLiveStartedAt = 0;
     state.freshLiveBlockedEntryIds = new Set();
@@ -1524,10 +1529,14 @@ socket.on('mode_changed', ({ mode }) => {
     state.liveEntryTimer = null;
     setStatus('Song active on public screen.');
   } else {
-    state.awaitingFreshLiveEntry = false;
-    state.allowTranscriptFallback = true;
-    state.freshLiveStartedAt = 0;
-    state.freshLiveBlockedEntryIds = new Set();
+    // V11.1: respect song_clear's 3-sec suppression window — keep awaiting fresh entry,
+    // don't fall back to latest stale transcript while the loading dots are showing.
+    if (!state.suppressTranscriptFallback) {
+      state.awaitingFreshLiveEntry = false;
+      state.allowTranscriptFallback = true;
+      state.freshLiveStartedAt = 0;
+      state.freshLiveBlockedEntryIds = new Set();
+    }
     setStatus(state.serverAudioMuted ? 'Audio is muted by the operator. You cannot enable it right now.' : 'Connected.');
   }
   renderLiveView({ announce: false });
@@ -1575,23 +1584,33 @@ socket.on('song_clear', () => {
   state.currentMode = 'live';
   state.currentSongState = null;
   if (state.currentEvent) state.currentEvent.latestDisplayEntry = null;
-  // V11: explicit visual reset so participant sees the song text disappear immediately,
-  // not depend on the renderLiveView fallback chain (which can show stale latest transcript
-  // if a follow-up display_mode_changed sets allowTranscriptFallback=true before participant
-  // ends up in a clean state). Clears #lastText to a clear default + drops earlier lines.
+  // V11: explicit visual reset so participant sees the song text disappear immediately.
+  // V11.1: show the 3-dot loader (Smart Flush V3) + suppress transcript fallback for 3 sec
+  // so the follow-up display_mode_changed mode='auto' event (which normally enables
+  // allowTranscriptFallback=true → renders latest old transcript) does NOT override the
+  // "waiting for fresh entry" intent. After 3s the suppression lifts naturally so the
+  // normal mode=auto behavior resumes for future live updates.
   state.visibleLiveEntry = null;
   state.liveEntryQueue = [];
   if (state.liveEntryTimer) { clearTimeout(state.liveEntryTimer); state.liveEntryTimer = null; }
-  const lastTextEl = document.getElementById('lastText');
-  if (lastTextEl) lastTextEl.textContent = 'Waiting for translation...';
   const earlierBox = document.getElementById('participantEarlierLines');
   if (earlierBox) earlierBox.innerHTML = '';
   // SMART FLUSH V1.1: drop any pending buffered chunks that were about to be displayed
   if (displayBuffer.pendingTimer) { clearTimeout(displayBuffer.pendingTimer); displayBuffer.pendingTimer = null; }
   displayBuffer.pendingText = null;
+  // V11.1: explicit 3-dot loader instead of static text (matches Smart Flush V3 design)
+  showLoadingDots();
+  // V11.1: sticky suppression flag — display_mode_changed honors this for 3s
+  state.suppressTranscriptFallback = true;
+  if (state.suppressTranscriptFallbackTimer) clearTimeout(state.suppressTranscriptFallbackTimer);
+  state.suppressTranscriptFallbackTimer = setTimeout(() => {
+    state.suppressTranscriptFallback = false;
+    state.suppressTranscriptFallbackTimer = null;
+  }, 3000);
   syncLanguageOptions({ ...state.currentEvent, mode: 'live', songState: null });
   waitForFreshLiveEntry();
-  renderLiveView({ announce: false });
+  // Don't call renderLiveView here — it would overwrite showLoadingDots if no fresh entry.
+  // waitForFreshLiveEntry already calls renderLiveView; that one will respect the dots.
 });
 
 $('languageSelect').addEventListener('change', handleLanguageChange);
