@@ -878,7 +878,9 @@ progress::-moz-progress-bar {
 }
 
 .btn-danger[data-global-song-action="delete"]:hover,
-.btn-danger[data-manual-library-action="delete"]:hover {
+.btn-danger[data-manual-library-action="delete"]:hover,
+.btn-danger[data-global-song-action="delete"]:focus-visible,
+.btn-danger[data-manual-library-action="delete"]:focus-visible {
   background:
     radial-gradient(circle at top center, rgba(255, 220, 220, 0.24), transparent 58%),
     linear-gradient(135deg, #dc2626, #991b1b);
@@ -5356,7 +5358,11 @@ body.participant-preview-mode .participant-event-chooser {
   background: rgba(20, 15, 10, 0.95);
   border-top: 2px solid #d4a574;
   padding: 12px 24px;
-  z-index: 9000;
+  /* V11.2 (CodeRabbit Finding 1): was 9000, which placed this decorative bottom bar ABOVE
+     full-screen overlays like .participant-service-ended (z-index: 950) and
+     .participant-ai-notice (z-index: 1000) — the bar leaked over modals that should block it.
+     Lowered to 800 so it sits above page content but below overlay dialogs. */
+  z-index: 800;
   display: flex;
   align-items: center;
   justify-content: center;
