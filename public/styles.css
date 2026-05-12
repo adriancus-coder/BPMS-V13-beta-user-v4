@@ -884,6 +884,23 @@ progress::-moz-progress-bar {
     linear-gradient(135deg, #dc2626, #991b1b);
 }
 
+/* V10.1 fix U1: .btn-secondary — moderate-intensity action button (between .btn-primary and .btn-dark).
+   Used by Bible Mode toggle buttons in admin.html (hero topbar + Live Control tab). Before this fix
+   the class was undefined → fallback to bare .btn → barely visible on dark glass-panel background. */
+.btn-secondary {
+  background:
+    linear-gradient(135deg, rgba(212, 165, 116, 0.22), rgba(212, 165, 116, 0.12));
+  color: #f8e9c7;
+  border-color: rgba(212, 165, 116, 0.45);
+  font-weight: 600;
+}
+
+.btn-secondary:hover {
+  background:
+    linear-gradient(135deg, rgba(212, 165, 116, 0.32), rgba(212, 165, 116, 0.18));
+  border-color: rgba(212, 165, 116, 0.65);
+}
+
 .btn:hover {
   filter: saturate(1.04);
 }
