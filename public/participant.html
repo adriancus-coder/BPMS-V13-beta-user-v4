@@ -81,13 +81,17 @@
     </main>
   </div>
 
+  <!-- V10.1 fix U2: static text is English fallback. JS (showServiceEndedOverlay → getServiceEndedMessages)
+       replaces all three strings at show-time with the participant's selected language from the
+       SERVICE_ENDED_MESSAGES catalog (participant.js — 12 languages: ro/no/en/ru/uk/es/de/fr/it/hu/pl/pt).
+       English chosen as fallback because non-RO users were seeing hardcoded Romanian briefly. -->
   <div id="participantServiceEnded" class="participant-service-ended" hidden role="status" aria-live="polite" aria-labelledby="participantServiceEndedTitle">
     <div class="participant-service-ended-card">
       <div class="participant-service-ended-icon" aria-hidden="true">&#x2720;</div>
-      <h2 id="participantServiceEndedTitle">Serviciul a luat sfârșit</h2>
-      <p class="participant-service-ended-subtitle">Vă mulțumim că ați fost cu noi!</p>
+      <h2 id="participantServiceEndedTitle">The service has ended</h2>
+      <p class="participant-service-ended-subtitle">Thank you for being with us!</p>
       <div id="participantServiceEndedTime" class="participant-service-ended-time"></div>
-      <button id="participantServiceEndedClose" class="btn btn-dark" type="button">Închide</button>
+      <button id="participantServiceEndedClose" class="btn btn-dark" type="button">Close</button>
     </div>
   </div>
 
