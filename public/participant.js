@@ -1575,6 +1575,20 @@ socket.on('song_clear', () => {
   state.currentMode = 'live';
   state.currentSongState = null;
   if (state.currentEvent) state.currentEvent.latestDisplayEntry = null;
+  // V11: explicit visual reset so participant sees the song text disappear immediately,
+  // not depend on the renderLiveView fallback chain (which can show stale latest transcript
+  // if a follow-up display_mode_changed sets allowTranscriptFallback=true before participant
+  // ends up in a clean state). Clears #lastText to a clear default + drops earlier lines.
+  state.visibleLiveEntry = null;
+  state.liveEntryQueue = [];
+  if (state.liveEntryTimer) { clearTimeout(state.liveEntryTimer); state.liveEntryTimer = null; }
+  const lastTextEl = document.getElementById('lastText');
+  if (lastTextEl) lastTextEl.textContent = 'Waiting for translation...';
+  const earlierBox = document.getElementById('participantEarlierLines');
+  if (earlierBox) earlierBox.innerHTML = '';
+  // SMART FLUSH V1.1: drop any pending buffered chunks that were about to be displayed
+  if (displayBuffer.pendingTimer) { clearTimeout(displayBuffer.pendingTimer); displayBuffer.pendingTimer = null; }
+  displayBuffer.pendingText = null;
   syncLanguageOptions({ ...state.currentEvent, mode: 'live', songState: null });
   waitForFreshLiveEntry();
   renderLiveView({ announce: false });
