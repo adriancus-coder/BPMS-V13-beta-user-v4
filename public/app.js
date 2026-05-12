@@ -1488,7 +1488,7 @@ function renderGlobalSongLibrary(items = []) {
           </div>
           <div class="library-inline-actions">
             <button class="btn btn-dark" data-global-song-action="add" data-global-song-id="${item.id}">Add to event</button>
-            <button data-global-song-action="delete" data-global-song-id="${item.id}">Delete</button>
+            <button class="btn btn-danger" data-global-song-action="delete" data-global-song-id="${item.id}">🗑 Delete</button>
           </div>
         </div>
       </div>
@@ -1516,7 +1516,7 @@ function renderPinnedTextLibrary(items = []) {
         <div class="actions">
           <button class="btn btn-dark" type="button" data-manual-library-action="load" data-manual-library-id="${item.id}">Load in editor</button>
           <button class="btn btn-primary" type="button" data-manual-library-action="send" data-manual-library-id="${item.id}">Send to main screen</button>
-          <button type="button" data-manual-library-action="delete" data-manual-library-id="${item.id}">Delete</button>
+          <button class="btn btn-danger" type="button" data-manual-library-action="delete" data-manual-library-id="${item.id}">🗑 Delete</button>
         </div>
       </div>
     </details>
