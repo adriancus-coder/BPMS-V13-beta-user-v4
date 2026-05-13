@@ -15,6 +15,7 @@ const packageJson = require('./package.json');
 const { createLogger } = require('./lib/logger');
 const { createJsonDbStore } = require('./lib/db');
 const { createTranslationService } = require('./lib/translation');
+const { installRateLimitGC } = require('./lib/rate-limit-gc');
 const { registerAdminRoutes } = require('./routes/admin');
 const { registerOrgRoutes } = require('./routes/org');
 const { registerEventRoutes } = require('./routes/events');
@@ -4241,6 +4242,27 @@ function generateOperatorAccessCode() {
 }
 
 const accessRequestRateLimits = new Map();
+
+// V11.4: Periodic GC for rate-limit Maps (V10 audit MEDIU)
+// Shapes confirmed: both Maps store { windowStart: epoch_ms, count: number } keyed by IP.
+// TTL 1h is generous over the 10-min rate-limit window — keeps recent entries for
+// observability, drops fully-expired ones to bound memory. Sweep runs every 10 min;
+// first sweep happens after the first interval (no boot sweep), so Maps populate first.
+installRateLimitGC([
+  {
+    name: 'accessRequestRateLimits',
+    map: accessRequestRateLimits,
+    ttlMs: 60 * 60 * 1000,
+    getLastSeenAt: (v) => v.windowStart || 0,
+  },
+  {
+    name: 'operatorLoginAttempts',
+    map: operatorLoginAttempts,
+    ttlMs: 60 * 60 * 1000,
+    getLastSeenAt: (v) => v.windowStart || 0,
+  },
+], { intervalMs: 10 * 60 * 1000, logger });
+
 function checkAccessRequestRateLimit(ip) {
   const now = Date.now();
   const entry = accessRequestRateLimits.get(ip);
