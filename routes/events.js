@@ -795,6 +795,20 @@ function registerEventRoutes(app, ctx) {
       event.displayState.mode = 'song';
       event.displayState.blackScreen = false;
       event.displayState.sceneLabel = '';
+      // V11.8: switch displayState.language to song's source language so Main Screen
+      // auto-shows the original verse text on Send (without admin manually switching
+      // the display language). Dual-mode no-op: if sourceLang is already visible on
+      // primary OR secondary card, preserve the operator's dual-mode choice. Update
+      // happens BEFORE buildDisplayPayload below so the emit carries the new language.
+      // Participant phone selection (state.currentLanguage in participant.js) is in a
+      // separate state slot and is NOT affected by display_mode_changed payload (verified).
+      {
+        const currentPrimary = event.displayState.language || '';
+        const currentSecondary = event.displayState.secondaryLanguage || '';
+        if (currentPrimary !== songSourceLang && currentSecondary !== songSourceLang) {
+          event.displayState.language = songSourceLang;
+        }
+      }
       event.displayState.updatedAt = new Date().toISOString();
       recordScreenAction(event, 'song');
       io.to(`event:${event.id}`).emit('mode_changed', { mode: 'song' });
@@ -834,7 +848,25 @@ function registerEventRoutes(app, ctx) {
     const index = Number(req.params.index);
     if (!setSongIndex(event, index)) return res.status(400).json({ ok: false, error: 'Index invalid.' });
     recordScreenAction(event, 'song');
+    // V11.8: same dual-mode no-op as /song/load — switch displayState.language to verse's
+    // source on jump-to-verse. /song/show emits ONLY song_state today, so we also emit
+    // display_mode_changed (conditionally, only if language actually changed) so Main Screen
+    // picks up the new language. Flag avoids redundant emits + Main Screen re-render on no-op.
+    let displayLanguageChanged = false;
+    const verseSourceLang = event.songState?.sourceLang || event.sourceLang || 'ro';
+    if (event.displayState) {
+      const currentPrimary = event.displayState.language || '';
+      const currentSecondary = event.displayState.secondaryLanguage || '';
+      if (currentPrimary !== verseSourceLang && currentSecondary !== verseSourceLang) {
+        event.displayState.language = verseSourceLang;
+        event.displayState.updatedAt = new Date().toISOString();
+        displayLanguageChanged = true;
+      }
+    }
     io.to(`event:${event.id}`).emit('song_state', event.songState);
+    if (displayLanguageChanged) {
+      io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
+    }
     res.json({ ok: true, songState: event.songState });
     saveDb();
     emitUsageStats(event.id);
