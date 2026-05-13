@@ -790,9 +790,22 @@ function registerEventRoutes(app, ctx) {
       speechBuffers.delete(event.id);
       event.lastTranscriptNorm = '';
       setTranscriptionPaused(event, true, { save: false, emit: false, markOnAir: false });
+      // V11.9: flip displayState.mode = 'song' BEFORE rememberDisplayState (and the
+      // explicit ensureEventUiState below). Otherwise, when Send Song follows a Clear
+      // (which leaves displayState.mode='auto' but displayState.language='ro' from the
+      // prior song source), the inner ensureEventUiState in rememberDisplayState evicts
+      // dual-mode pairs: getDisplayLanguageChoices() with mode='auto' returns just
+      // event.targetLangs (e.g. ['no','en']), so primary 'ro' → 'no' (first target),
+      // then secondary 'no' → '' (because secondary === primary). V11.8 then puts
+      // 'ro' back on primary but secondary is already gone → single RO (the bug).
+      // Setting mode='song' first means getDisplayLanguageChoices() includes
+      // songState.sourceLang, preserving dual RO+NO across Clear → Send Song RO.
+      if (event.displayState && typeof event.displayState === 'object') {
+        event.displayState.mode = 'song';
+      }
       rememberDisplayState(event);
+      event.displayState.mode = 'song'; // re-assert: handles brand-new events where rememberDisplayState's ensureEventUiState just created default displayState
       ensureEventUiState(event);
-      event.displayState.mode = 'song';
       event.displayState.blackScreen = false;
       event.displayState.sceneLabel = '';
       // V11.8: switch displayState.language to song's source language so Main Screen
