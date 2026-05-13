@@ -301,7 +301,10 @@ function applyDualTextScale() {
   const dual = $('translateDualText');
   if (!dual) return;
 
-  // Reset inline styles ca fitting-ul să pornească curat la fiecare update.
+  // V11.6: Reset inline styles so fitting starts clean on each update.
+  // Selector matches all dual-text elements; we only act on primary/secondary
+  // below, but resetting the class globally is safe (idempotent) and defensive
+  // against any future card variants on the same screen.
   document.querySelectorAll('.unified-display-language-text').forEach((el) => {
     el.style.fontSize = '';
     el.style.lineHeight = '';
@@ -310,31 +313,62 @@ function applyDualTextScale() {
     el.style.maxHeight = '';
   });
 
-  // Variabila CSS rămâne pentru stiluri externe care o pot citi; fitting-ul real
-  // se face mai jos prin fitDisplayTextElement, care folosește state.textScale intern.
   const scale = Math.min(1.3, Math.max(0.65, Number(state.textScale || 1)));
   dual.style.setProperty('--dual-text-scale', String(scale));
 
-  // Fitting auto independent pe fiecare card. Card-urile dual au ~50% lățime ecran,
-  // deci maxSize coboară de la 130 (single) la 100. reserveHeight=60 pentru label.
   const primaryText = $('translatePrimaryText');
   const secondaryText = $('translateSecondaryText');
   const primaryCard = primaryText?.parentElement;
   const secondaryCard = secondaryText?.parentElement;
-  if (primaryText && primaryCard) {
-    fitDisplayTextElement(primaryText, primaryCard, {
-      reserveHeight: 60,
-      maxSize: 100,
-      dense: true
-    });
+  if (!primaryText || !primaryCard || !secondaryText || !secondaryCard) return;
+
+  // V11.6 Pass 1: fit each card independently to discover natural size.
+  fitDisplayTextElement(primaryText, primaryCard, { reserveHeight: 60, maxSize: 100, dense: true });
+  fitDisplayTextElement(secondaryText, secondaryCard, { reserveHeight: 60, maxSize: 100, dense: true });
+
+  // V11.6 Pass 2: read effective sizes (fontSize × transform scale if applied),
+  // take min. Skip sync if cards are already balanced (within 0.5px).
+  const sizeA = readEffectiveFontSize(primaryText);
+  const sizeB = readEffectiveFontSize(secondaryText);
+  if (Math.abs(sizeA - sizeB) < 0.5) return;
+
+  // V11.6 Pass 3: re-fit BOTH with the smaller size as cap. The larger card
+  // shrinks down to match; the smaller card's transform scale (if any) is
+  // re-evaluated — cleared if no longer needed at the new fontSize.
+  const finalSize = Math.min(sizeA, sizeB);
+  resetTextStyles(primaryText);
+  resetTextStyles(secondaryText);
+  fitDisplayTextElement(primaryText, primaryCard, { reserveHeight: 60, maxSize: finalSize, dense: true });
+  fitDisplayTextElement(secondaryText, secondaryCard, { reserveHeight: 60, maxSize: finalSize, dense: true });
+}
+
+// V11.6 helper: clear inline overrides set by fitDisplayTextElement.
+function resetTextStyles(el) {
+  if (!el) return;
+  el.style.fontSize = '';
+  el.style.lineHeight = '';
+  el.style.transform = '';
+  el.style.maxWidth = '';
+  el.style.maxHeight = '';
+}
+
+// V11.6 helper: combine inline fontSize with transform scale (if any) from
+// fitDisplayTextElement's final fallback. Parses matrix(a, b, c, d, tx, ty)
+// where uniform scale produces a === d === scale factor. Returns visual size
+// in CSS pixels.
+function readEffectiveFontSize(el) {
+  if (!el) return 0;
+  const cs = window.getComputedStyle(el);
+  const fontSize = parseFloat(cs.fontSize) || 0;
+  const transform = cs.transform || '';
+  const m = transform.match(/matrix\(([^)]+)\)/);
+  if (m) {
+    const parts = m[1].split(',').map(s => parseFloat(s.trim()));
+    if (parts.length >= 4 && Number.isFinite(parts[0])) {
+      return fontSize * parts[0];
+    }
   }
-  if (secondaryText && secondaryCard) {
-    fitDisplayTextElement(secondaryText, secondaryCard, {
-      reserveHeight: 60,
-      maxSize: 100,
-      dense: true
-    });
-  }
+  return fontSize;
 }
 
 function autoFitText() {
