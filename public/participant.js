@@ -1,6 +1,9 @@
 const socket = io();
 const $ = (id) => document.getElementById(id);
 let availableLanguages = {};
+// V11.5: endonyms catalog (each language's name in its own language) — preferred over
+// availableLanguages on end-user-facing participant UI. Falls back if server didn't send.
+let availableEndonyms = {};
 let participantWakeLock = null;
 const participantParams = new URLSearchParams(window.location.search);
 const LIVE_ENTRY_MIN_DISPLAY_MS = 2200;
@@ -77,7 +80,8 @@ const voiceLocales = {
 };
 
 function langLabel(code) {
-  return availableLanguages[code] || code.toUpperCase();
+  // V11.5: prefer endonym over RO name on end-user UI (participant phone view).
+  return availableEndonyms[code] || availableLanguages[code] || code.toUpperCase();
 }
 
 function getOrCreateParticipantId() {
@@ -611,6 +615,7 @@ async function loadParticipantEvents({ joinFixedIfLive = false } = {}) {
     const res = await fetch('/api/events/public');
     const data = await res.json();
     if (data.languageNames) availableLanguages = data.languageNames;
+    if (data.languageEndonyms) availableEndonyms = data.languageEndonyms;
     const events = data.events || [];
     renderParticipantEventList(events);
     if (state.previewMode && state.fixedEventId) {
@@ -1675,6 +1680,7 @@ window.addEventListener('load', async () => {
     const res = await fetch('/api/languages');
     const data = await res.json();
     availableLanguages = data.languages || {};
+    availableEndonyms = data.languageEndonyms || {};
   } catch (_) {}
 
   try {

@@ -1,6 +1,9 @@
 const socket = io();
 const $ = (id) => document.getElementById(id);
 let availableLanguages = {};
+// V11.5: endonyms catalog (each language's name in its own language) — preferred over
+// availableLanguages on end-user-facing Main Screen cards. Falls back if server didn't send.
+let availableEndonyms = {};
 let mainScreenWakeLock = null;
 
 function escapeTextForHtml(text) {
@@ -57,7 +60,9 @@ if (params.has('code') && window.history && window.history.replaceState) {
 }
 
 function langLabel(code) {
-  return availableLanguages[code] || code.toUpperCase();
+  // V11.5: prefer endonym ("Norsk", "English") over RO name ("Norvegiană", "Engleză") on
+  // end-user UI. Falls through to availableLanguages if no endonym for the code.
+  return availableEndonyms[code] || availableLanguages[code] || code.toUpperCase();
 }
 
 function setStatus(text) {
@@ -433,8 +438,9 @@ socket.on('connect', async () => {
 
 socket.on('disconnect', () => setStatus('Reconnecting...'));
 
-socket.on('joined_event', ({ event, languageNames }) => {
+socket.on('joined_event', ({ event, languageNames, languageEndonyms }) => {
   if (languageNames) availableLanguages = languageNames;
+  if (languageEndonyms) availableEndonyms = languageEndonyms;
   state.currentEvent = event;
   state.currentDisplayMode = event.displayState?.mode || 'auto';
   state.currentTheme = event.displayState?.theme || 'dark';
@@ -621,6 +627,7 @@ window.addEventListener('load', async () => {
     const res = await fetch('/api/languages');
     const data = await res.json();
     availableLanguages = data.languages || {};
+    availableEndonyms = data.languageEndonyms || {};
   } catch (_) {}
   updateClock();
   window.setInterval(updateClock, 1000);

@@ -14,6 +14,7 @@ function registerEventRoutes(app, ctx) {
     DEFAULT_ORG_ID,
     LANGUAGES,
     LANGUAGE_NAMES_RO,
+    LANGUAGE_ENDONYMS,
     TRANSCRIBE_RATE_LIMIT_MAX,
     TRANSCRIBE_RATE_LIMIT_WINDOW_MS,
     appendAudioArchiveChunk,
@@ -150,7 +151,7 @@ function registerEventRoutes(app, ctx) {
     if (!event) return res.status(404).json({ ok: false, error: 'Nu există eveniment activ.' });
     ensureEventAccessLinks(event, buildBaseUrl(req));
     saveDb();
-    res.json({ ok: true, event: normalizeEvent(event), languageNames: LANGUAGE_NAMES_RO, organization: buildPublicOrganization(getOrganizationForEvent(event)) });
+    res.json({ ok: true, event: normalizeEvent(event), languageNames: LANGUAGE_NAMES_RO, languageEndonyms: LANGUAGE_ENDONYMS, organization: buildPublicOrganization(getOrganizationForEvent(event)) });
   });
 
   app.get('/api/events/upcoming', (req, res) => {
@@ -414,7 +415,7 @@ function registerEventRoutes(app, ctx) {
         isActive: activeEventId === event.id,
         testMode: !!event.testMode
       }));
-    res.json({ ok: true, events, activeEventId: activeEventId || null, languageNames: LANGUAGE_NAMES_RO, organization: buildPublicOrganization() });
+    res.json({ ok: true, events, activeEventId: activeEventId || null, languageNames: LANGUAGE_NAMES_RO, languageEndonyms: LANGUAGE_ENDONYMS, organization: buildPublicOrganization() });
   });
 
   app.get('/api/events', (req, res) => {
@@ -423,7 +424,7 @@ function registerEventRoutes(app, ctx) {
     const events = getOrganizationEvents(DEFAULT_ORG_ID)
       .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
       .map(summarizeEvent);
-    res.json({ ok: true, events, activeEventId: activeEventId || null, languageNames: LANGUAGE_NAMES_RO, organization: buildPublicOrganization() });
+    res.json({ ok: true, events, activeEventId: activeEventId || null, languageNames: LANGUAGE_NAMES_RO, languageEndonyms: LANGUAGE_ENDONYMS, organization: buildPublicOrganization() });
   });
 
   app.get('/api/events/:id', (req, res) => {
@@ -434,7 +435,7 @@ function registerEventRoutes(app, ctx) {
     const access = hasValidAdminSession(req)
       ? { role: 'admin', permissions: ['main_screen', 'song'], operator: null }
       : resolveEventAccessFromCode(event, getSuppliedEventCode(req));
-    res.json({ ok: true, event: normalizeEvent(event, { includeSecrets: access.role === 'admin' }), languageNames: LANGUAGE_NAMES_RO, organization: buildPublicOrganization(getOrganizationForEvent(event)) });
+    res.json({ ok: true, event: normalizeEvent(event, { includeSecrets: access.role === 'admin' }), languageNames: LANGUAGE_NAMES_RO, languageEndonyms: LANGUAGE_ENDONYMS, organization: buildPublicOrganization(getOrganizationForEvent(event)) });
   });
 
   app.post('/api/events/:id/remote-operators', (req, res) => {

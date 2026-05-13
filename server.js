@@ -306,6 +306,29 @@ const LANGUAGE_NAMES_RO = {
   el: 'Greacă'
 };
 
+// V11.5: Endonyms — language names written in their own language.
+// Used for end-user-facing UI (Main Screen cards in translate.html, Participant phone view).
+// Admin UI continues to use LANGUAGE_NAMES_RO (operator-facing in Romanian).
+// Keys mirror LANGUAGES exactly (16 codes verified).
+const LANGUAGE_ENDONYMS = {
+  ro: 'Română',
+  no: 'Norsk',
+  ru: 'Русский',
+  uk: 'Українська',
+  en: 'English',
+  es: 'Español',
+  fr: 'Français',
+  de: 'Deutsch',
+  it: 'Italiano',
+  pt: 'Português',
+  pl: 'Polski',
+  tr: 'Türkçe',
+  ar: 'العربية',
+  fa: 'فارسی',
+  hu: 'Magyar',
+  el: 'Ελληνικά'
+};
+
 function ensureDataDir() {
   dbStore.ensureDataDir();
 }
@@ -5010,6 +5033,7 @@ registerOrgRoutes(app, {
   COMMERCIAL_MODE,
   DEFAULT_ORG_ID,
   LANGUAGE_NAMES_RO,
+  LANGUAGE_ENDONYMS,
   OPENAI_API_KEY,
   OPENAI_MODEL,
   OPENAI_TRANSCRIBE_MODEL,
@@ -5042,6 +5066,7 @@ registerEventRoutes(app, {
   DEFAULT_ORG_ID,
   LANGUAGES,
   LANGUAGE_NAMES_RO,
+  LANGUAGE_ENDONYMS,
   TRANSCRIBE_RATE_LIMIT_MAX,
   TRANSCRIBE_RATE_LIMIT_WINDOW_MS,
   appendAudioArchiveChunk,
@@ -5125,6 +5150,7 @@ registerEventRoutes(app, {
 
 registerSocketHandlers(io, {
   LANGUAGE_NAMES_RO,
+  LANGUAGE_ENDONYMS,
   azureSpeechSessions,
   buildDisplayPayload,
   buildPublicOrganization,
