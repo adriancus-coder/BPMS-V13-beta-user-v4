@@ -1475,21 +1475,14 @@ function renderGlobalSongLibrary(items = []) {
       </summary>
       <div class="library-card-body">
         <div class="small"><b>Language:</b> ${escapeHtml(langLabel(item.sourceLang || currentEvent?.sourceLang || 'ro'))}</div>
-        <div class="actions">
+        <div class="library-card-actions">
           <button class="btn btn-dark" data-global-song-action="load" data-global-song-id="${item.id}">Load in editor</button>
           <button class="btn btn-primary" data-global-song-action="send" data-global-song-id="${item.id}">Send first verse</button>
-        </div>
-        <div class="split-2 compact-library-row">
-          <div>
-            <label>Choose event</label>
-            <select data-global-song-target="${item.id}">
-              ${getTargetEventChoices(selectedEventId)}
-            </select>
-          </div>
-          <div class="library-inline-actions">
-            <button class="btn btn-dark" data-global-song-action="add" data-global-song-id="${item.id}">Add to event</button>
-            <button class="btn btn-danger" data-global-song-action="delete" data-global-song-id="${item.id}">🗑 Delete</button>
-          </div>
+          <select aria-label="Choose event to add this song to" data-global-song-target="${item.id}">
+            ${getTargetEventChoices(selectedEventId)}
+          </select>
+          <button class="btn btn-dark" data-global-song-action="add" data-global-song-id="${item.id}">Add to event</button>
+          <button class="btn btn-danger" data-global-song-action="delete" data-global-song-id="${item.id}">🗑 Delete</button>
         </div>
       </div>
     </details>

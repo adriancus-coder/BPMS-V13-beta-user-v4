@@ -2114,6 +2114,43 @@ progress::-moz-progress-bar {
   justify-content: flex-start;
 }
 
+/* V11.12: Single-row layout for the 5 controls in an expanded song-library card
+ * ([Load][Send][Choose event select][Add][Delete]). Buttons are slightly shorter
+ * vertically for a more compact look; the select grows to fill leftover space.
+ * Below 768px, the row wraps so phones/tablets don't blow out the layout. */
+.library-card-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.library-card-actions select {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  font-size: 0.9rem;
+}
+
+.library-card-actions .btn {
+  flex: 0 0 auto;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .library-card-actions {
+    flex-wrap: wrap;
+  }
+  .library-card-actions select {
+    flex: 1 1 100%;
+  }
+}
+
 .preset-save-wrap {
   display: flex;
   align-items: end;
