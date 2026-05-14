@@ -1594,20 +1594,23 @@ async function saveSongToLibrary() {
 }
 
 async function sendSongItemToLive(item) {
-  if (!currentEvent) return alert('Open or create an event first.');
+  // V11.11: return true/false so callers (e.g. Library handler) can auto-close UI on success.
+  // Existing caller sendSongToLive() ignores the return value — backward compatible.
+  if (!currentEvent) { alert('Open or create an event first.'); return false; }
   const title = String(item?.title || '').trim();
   const text = String(item?.text || '').trim();
   const labels = Array.isArray(item?.labels) ? item.labels : getSongEditorLabels();
   const sourceLang = String(item?.sourceLang || getSongSourceLang()).trim() || currentEvent?.sourceLang || 'ro';
-  if (!text) return alert('Write text first.');
+  if (!text) { alert('Write text first.'); return false; }
   const res = await fetch(`/api/events/${currentEvent.id}/song/load`, adminJsonOptions('POST', { title, text, labels, sourceLang }));
   const data = await res.json();
-  if (!data.ok) return alert(data.error || 'Could not start verse mode.');
+  if (!data.ok) { alert(data.error || 'Could not start verse mode.'); return false; }
   currentEvent = data.event || currentEvent;
   currentEvent.songState = data.songState || currentEvent.songState;
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
   setStatus('First verse is live. Choose any verse or chorus to send it live.');
+  return true;
 }
 
 async function sendSongToLive() {
@@ -3916,7 +3919,12 @@ $('globalSongLibraryList').addEventListener('click', async (e) => {
     if (!currentEvent) return alert('Open or create an event first.');
     // FEATURE 7 BUGFIX: NU mai umplem editor-ul când trimitem la Live.
     // Send la Live = action separat de Edit. Editor-ul rămâne curat pentru cântec NOU.
-    await sendSongItemToLive(item);
+    const ok = await sendSongItemToLive(item);
+    // V11.11: auto-close the expanded library card on successful Send so the operator
+    // can immediately search for the next song. Only close on success — on failure
+    // (network error, server error, missing event) the card stays open for retry.
+    // Other actions (load/add/delete) intentionally do NOT trigger auto-close.
+    if (ok) btn.closest('.library-card-details')?.removeAttribute('open');
     return;
   }
   if (action === 'add') {

@@ -2072,7 +2072,8 @@ progress::-moz-progress-bar {
 .library-card-summary {
   list-style: none;
   cursor: pointer;
-  padding: 16px 18px;
+  /* V11.11: compact padding so more songs fit on screen (was 16px 18px). */
+  padding: 10px 14px;
 }
 
 .library-card-summary::-webkit-details-marker {
@@ -2094,8 +2095,10 @@ progress::-moz-progress-bar {
 
 .library-card-body {
   display: grid;
-  gap: 14px;
-  padding: 0 18px 18px;
+  /* V11.11: tighter spacing inside expanded card so operator sees more list rows
+   * (was gap 14px + padding 0 18px 18px). Button height preserved for touch. */
+  gap: 8px;
+  padding: 0 14px 10px;
   border-top: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.42);
 }
