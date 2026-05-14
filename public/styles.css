@@ -5594,3 +5594,34 @@ body.participant-preview-mode .participant-event-chooser {
   justify-content: flex-end;
   margin-top: 16px;
 }
+
+/* V11.10: Global :active feedback for buttons — instant visual cue that click was registered.
+ * Applies to all <button>, .btn, and admin-action elements across admin + Main Screen +
+ * Song + Bible controls. Pure CSS, no JS. Triggers while mouse/touch is held down (~100ms).
+ */
+button:active,
+.btn:active,
+[data-action]:active,
+[role="button"]:active {
+  transform: scale(0.96);
+  filter: brightness(0.85);
+  transition: transform 60ms ease-out, filter 60ms ease-out;
+}
+
+/* Respect disabled state — no feedback on buttons that can't be clicked. */
+button:disabled:active,
+.btn:disabled:active,
+button[disabled]:active {
+  transform: none;
+  filter: none;
+}
+
+/* Reduced motion — users with vestibular preferences see brightness only, no scale. */
+@media (prefers-reduced-motion: reduce) {
+  button:active,
+  .btn:active,
+  [data-action]:active,
+  [role="button"]:active {
+    transform: none;
+  }
+}
