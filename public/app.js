@@ -1478,10 +1478,12 @@ function renderGlobalSongLibrary(items = []) {
         <div class="library-card-actions">
           <button class="btn btn-dark" data-global-song-action="load" data-global-song-id="${item.id}">Load in editor</button>
           <button class="btn btn-primary" data-global-song-action="send" data-global-song-id="${item.id}">Send first verse</button>
-          <select aria-label="Choose event to add this song to" data-global-song-target="${item.id}">
-            ${getTargetEventChoices(selectedEventId)}
-          </select>
-          <button class="btn btn-dark" data-global-song-action="add" data-global-song-id="${item.id}">Add to event</button>
+          <span class="add-event-split">
+            <button class="btn btn-dark add-event-btn" data-global-song-action="add" data-global-song-id="${item.id}">Add to event</button>
+            <select class="add-event-select" aria-label="Choose event to add this song to" data-global-song-target="${item.id}">
+              ${getTargetEventChoices(selectedEventId)}
+            </select>
+          </span>
           <button class="btn btn-danger" data-global-song-action="delete" data-global-song-id="${item.id}">🗑 Delete</button>
         </div>
       </div>
