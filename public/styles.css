@@ -1299,10 +1299,6 @@ progress::-moz-progress-bar {
   flex-wrap: wrap;
 }
 
-.event-card-head .bulk-select {
-  margin-right: 8px;
-}
-
 @media (max-width: 768px) {
   .live-control-card {
     position: sticky;
@@ -1540,13 +1536,6 @@ progress::-moz-progress-bar {
 .event-card {
   display: grid;
   gap: 8px;
-}
-
-.event-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
 }
 
 .event-card.active {
