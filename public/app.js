@@ -64,8 +64,11 @@ function langLabel(code) {
   return availableLanguages[code] || code.toUpperCase();
 }
 
+// V11.17: local state for Create Event target language selection (source of truth for chips + dropdown)
+let selectedTargetLangs = ['no', 'en'];
+
 function selectedLangs() {
-  return Array.from(document.querySelectorAll('#targetLangList input[type="checkbox"][value]:checked')).map((i) => i.value);
+  return [...selectedTargetLangs];
 }
 
 function setStatus(text) {
@@ -710,17 +713,51 @@ function fillGlossaryLangs(targetLangs = []) {
   });
 }
 
+// V11.17: Target Languages picker — chips + dropdown adder (Create Event form)
+function renderTargetLangChips() {
+  const chipsContainer = document.getElementById('targetLangChips');
+  if (!chipsContainer) return;
+  chipsContainer.innerHTML = '';
+  selectedTargetLangs.forEach((code) => {
+    const label = availableLanguages[code] || code.toUpperCase();
+    const chip = document.createElement('span');
+    chip.className = 'target-lang-chip';
+    chip.dataset.code = code;
+    chip.innerHTML = `
+      <span class="target-lang-chip-label">${escapeHtml(label)}</span>
+      <button type="button" class="target-lang-chip-remove" data-action="remove-target-lang" aria-label="Elimină ${escapeHtml(label)}">×</button>
+    `;
+    chipsContainer.appendChild(chip);
+  });
+}
+
+function renderTargetLangAddOptions() {
+  const select = document.getElementById('targetLangAddSelect');
+  if (!select) return;
+  select.innerHTML = '<option value="">Adaugă limbă...</option>';
+  Object.keys(availableLanguages).forEach((code) => {
+    if (selectedTargetLangs.includes(code)) return;
+    const opt = document.createElement('option');
+    opt.value = code;
+    opt.textContent = availableLanguages[code] || code.toUpperCase();
+    select.appendChild(opt);
+  });
+}
+
+function updateTargetLangPicker() {
+  renderTargetLangChips();
+  renderTargetLangAddOptions();
+}
+
 function fillLanguageSelectors() {
   const sourceSelect = $('sourceLang');
   const currentSourceSelect = $('currentSourceLang');
   const songSourceSelect = $('songSourceLang');
   const manualSourceSelect = $('manualSourceLang');
-  const targetBox = $('targetLangList');
   sourceSelect.innerHTML = '';
   if (currentSourceSelect) currentSourceSelect.innerHTML = '';
   if (songSourceSelect) songSourceSelect.innerHTML = '';
   if (manualSourceSelect) manualSourceSelect.innerHTML = '';
-  targetBox.innerHTML = '';
   Object.entries(availableLanguages).forEach(([code, label]) => {
     const option = document.createElement('option');
     option.value = code;
@@ -748,12 +785,8 @@ function fillLanguageSelectors() {
       if (code === 'ro') manualOption.selected = true;
       manualSourceSelect.appendChild(manualOption);
     }
-    const checked = ['no', 'en'].includes(code);
-    const row = document.createElement('label');
-    row.className = 'checkbox-item';
-    row.innerHTML = `<input type="checkbox" value="${code}" ${checked ? 'checked' : ''}> ${escapeHtml(label)}`;
-    targetBox.appendChild(row);
   });
+  updateTargetLangPicker();
 }
 
 function copyField(id, buttonId) {
@@ -1146,8 +1179,9 @@ function renderEventList(events = [], activeEventId = null, openedEventId = null
   `;
   box.appendChild(bulkBar);
   events.forEach((event) => {
-    const card = document.createElement('div');
-    card.className = `event-card${event.id === activeEventId ? ' active' : ''}${event.id === openedEventId ? ' opened' : ''}`;
+    // V11.17: collapsible event card (reuses Library Songs <details> pattern)
+    const card = document.createElement('details');
+    card.className = `event-card library-card-details${event.id === activeEventId ? ' active' : ''}${event.id === openedEventId ? ' opened' : ''}`;
     const langs = (event.targetLangs || []).map((lang) => langLabel(lang)).join(', ');
     const displayId = event.shortId || event.id;
     const badges = [`<div class="mini-badge">${event.mode || 'live'}</div>`];
@@ -1158,24 +1192,30 @@ function renderEventList(events = [], activeEventId = null, openedEventId = null
       ? 'Make this event visible in the participant chooser. Useful for live testing.'
       : 'Hide this event from the participant chooser.';
     card.innerHTML = `
-      <div class="event-card-head">
-        <label class="bulk-select inline-check"><input type="checkbox" class="event-bulk-checkbox" data-id="${event.id}" data-scheduled="${event.scheduledTimestamp || 0}"></label>
-        <div class="event-name">${escapeHtml(event.name || 'New event')}</div>${badges.join('')}
-      </div>
-      <div class="event-id-row">
-        <span class="event-id-label">Event ID</span>
-        <code class="event-id-value">${escapeHtml(displayId)}</code>
-        <button class="btn btn-dark event-id-copy" type="button" data-action="copy-id" data-id="${displayId}" title="Copy Event ID">Copy</button>
-      </div>
-      <div class="muted">Scheduled: ${escapeHtml(formatDateTime(event.scheduledAt || event.createdAt))}</div>
-      <div class="muted">Languages: ${escapeHtml(langs || '-')}</div>
-      <div class="muted">Texts: ${event.transcriptCount || 0}</div>
-      <div class="button-row compact">
-        <button class="btn btn-dark" data-action="open" data-id="${event.id}" title="Load this event in Live Control to edit transcript, glossary, songs, and main screen.">Open</button>
-        <button class="btn btn-primary" data-action="activate" data-id="${event.id}" title="Make this the active event for participants and the main screen. Only one event can be live at a time."${event.id === activeEventId ? ' disabled' : ''}>${event.id === activeEventId ? 'Live now' : 'Set live'}</button>
-        <button class="btn btn-dark" data-action="duplicate" data-id="${event.id}" title="Create a new event with the same languages, glossary, and song library — clean transcript and stats.">Duplicate</button>
-        <button class="btn btn-dark" data-action="visibility" data-id="${event.id}" title="${escapeHtml(visibilityTitle)}">${visibilityLabel}</button>
-        <button class="btn btn-danger" data-action="delete" data-id="${event.id}">Delete</button>
+      <summary class="library-card-summary">
+        <span class="event-summary-title">${escapeHtml(event.name || 'New event')}</span>
+        <span class="event-summary-meta">
+          ${badges.join('')}
+          <span class="event-summary-date">${escapeHtml(formatDateTime(event.scheduledAt || event.createdAt))}</span>
+        </span>
+      </summary>
+      <div class="library-card-body">
+        <label class="bulk-select inline-check"><input type="checkbox" class="event-bulk-checkbox" data-id="${event.id}" data-scheduled="${event.scheduledTimestamp || 0}"> Select for bulk delete</label>
+        <div class="event-id-row">
+          <span class="event-id-label">Event ID</span>
+          <code class="event-id-value">${escapeHtml(displayId)}</code>
+          <button class="btn btn-dark event-id-copy" type="button" data-action="copy-id" data-id="${displayId}" title="Copy Event ID">Copy</button>
+        </div>
+        <div class="muted">Scheduled: ${escapeHtml(formatDateTime(event.scheduledAt || event.createdAt))}</div>
+        <div class="muted">Languages: ${escapeHtml(langs || '-')}</div>
+        <div class="muted">Texts: ${event.transcriptCount || 0}</div>
+        <div class="button-row compact">
+          <button class="btn btn-dark" data-action="open" data-id="${event.id}" title="Load this event in Live Control to edit transcript, glossary, songs, and main screen.">Open</button>
+          <button class="btn btn-primary" data-action="activate" data-id="${event.id}" title="Make this the active event for participants and the main screen. Only one event can be live at a time."${event.id === activeEventId ? ' disabled' : ''}>${event.id === activeEventId ? 'Live now' : 'Set live'}</button>
+          <button class="btn btn-dark" data-action="duplicate" data-id="${event.id}" title="Create a new event with the same languages, glossary, and song library — clean transcript and stats.">Duplicate</button>
+          <button class="btn btn-dark" data-action="visibility" data-id="${event.id}" title="${escapeHtml(visibilityTitle)}">${visibilityLabel}</button>
+          <button class="btn btn-danger" data-action="delete" data-id="${event.id}">Delete</button>
+        </div>
       </div>`;
     box.appendChild(card);
   });
@@ -3299,6 +3339,25 @@ relocateMainScreenControls();
 // În TASK 32c sidebar-ul va fi eliminat complet.
 document.querySelectorAll('.nav-btn, .top-nav-btn').forEach((btn) => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
 $('createEventBtn').addEventListener('click', createEvent);
+
+// V11.17: Target Languages picker — add via dropdown, remove via chip ×
+document.getElementById('targetLangAddSelect')?.addEventListener('change', (e) => {
+  const code = e.target.value;
+  if (code && !selectedTargetLangs.includes(code)) {
+    selectedTargetLangs.push(code);
+    updateTargetLangPicker();
+  }
+  e.target.value = '';
+});
+document.getElementById('targetLangChips')?.addEventListener('click', (e) => {
+  const removeBtn = e.target.closest('[data-action="remove-target-lang"]');
+  if (!removeBtn) return;
+  const code = removeBtn.closest('.target-lang-chip')?.dataset.code;
+  if (!code) return;
+  selectedTargetLangs = selectedTargetLangs.filter((c) => c !== code);
+  updateTargetLangPicker();
+});
+
 $('sendManualLiveBtn').addEventListener('click', () => sendManualText('auto'));
 $('sendManualDisplayBtn').addEventListener('click', () => sendManualText('manual'));
 $('saveManualLibraryBtn').addEventListener('click', savePinnedTextToLibrary);

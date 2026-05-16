@@ -300,7 +300,14 @@
             <div></div>
           </div>
           <label>Target languages</label>
-          <div id="targetLangList" class="checkbox-grid"></div>
+          <div id="targetLangPicker" class="target-lang-picker">
+            <div id="targetLangChips" class="target-lang-chips" aria-live="polite"></div>
+            <div class="add-event-split target-lang-add">
+              <select id="targetLangAddSelect" class="add-event-select" aria-label="Selectează limbă pentru adăugare">
+                <option value="">Adaugă limbă...</option>
+              </select>
+            </div>
+          </div>
           <button id="createEventBtn" class="btn btn-primary">Create event</button>
         </div>
 
