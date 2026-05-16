@@ -5726,3 +5726,52 @@ button[disabled]:active {
     transform: none;
   }
 }
+
+/* V11.16: Compact Main Screen tab — fit mode controls above fold on 1920x1200@150%.
+   All selectors scoped to #tab-mainscreen so other tabs are untouched. The
+   .main-screen-settings-card is relocated into #tab-mainscreen at runtime. */
+
+/* Tighter outer panel padding + gap */
+#tab-mainscreen .section-stack {
+  padding: 8px 12px;
+  gap: 6px;
+}
+
+/* Smaller section headers (Main Screen / Usage) */
+#tab-mainscreen .section-head h2 {
+  font-size: 1.15rem;
+}
+
+/* Tighter subsection header spacing */
+#tab-mainscreen .admin-subsection-head {
+  margin-top: 4px;
+}
+
+/* Hide redundant descriptions: panel intro + subsection subtitles */
+#tab-mainscreen .section-stack > .muted,
+#tab-mainscreen .admin-subsection-head .muted {
+  display: none;
+}
+
+/* Tighter info-card padding inside the settings card */
+#tab-mainscreen .info-card {
+  padding: 9px;
+  gap: 6px;
+}
+
+#tab-mainscreen .main-screen-settings-card {
+  margin-bottom: 0;
+}
+
+/* Screen Status card — tighter gap, data row, banner */
+#tab-mainscreen .main-screen-audit-card {
+  gap: 8px;
+}
+
+#tab-mainscreen .display-audit-grid {
+  gap: 6px 12px;
+}
+
+#tab-mainscreen .display-audit-preview {
+  padding: 6px 12px;
+}
