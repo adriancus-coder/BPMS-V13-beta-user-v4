@@ -765,8 +765,8 @@ function defaultDisplayState() {
     backgroundPreset: 'none',
     customBackground: '',
     showClock: false,
-    clockPosition: 'top-right',
-    clockScale: 1,
+    clockPosition: 'bottom-right',
+    clockScale: 2,
     textSize: 'large',
     textScale: 1,
     screenStyle: 'focus',
@@ -982,7 +982,7 @@ function applyDisplaySnapshot(event, snapshot, updatedAt = new Date().toISOStrin
     customBackground: typeof safe.customBackground === 'string' ? safe.customBackground : '',
     showClock: !!safe.showClock,
     clockPosition: ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(safe.clockPosition) ? safe.clockPosition : 'top-right',
-    clockScale: typeof safe.clockScale === 'number' ? Math.min(1.8, Math.max(0.7, safe.clockScale)) : 1,
+    clockScale: typeof safe.clockScale === 'number' ? Math.min(2, Math.max(0.7, safe.clockScale)) : 2,
     textSize: ['compact', 'large', 'xlarge', 'huge'].includes(safe.textSize) ? safe.textSize : 'large',
     textScale: normalizeDisplayTextScale(safe.textScale, 1),
     screenStyle: ['focus', 'wide'].includes(safe.screenStyle) ? safe.screenStyle : 'focus',
@@ -1050,12 +1050,12 @@ function ensureEventUiState(event) {
   }
   event.displayState.showClock = !!event.displayState.showClock;
   if (!['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(event.displayState.clockPosition)) {
-    event.displayState.clockPosition = 'top-right';
+    event.displayState.clockPosition = 'bottom-right';
   }
   if (typeof event.displayState.clockScale !== 'number') {
-    event.displayState.clockScale = 1;
+    event.displayState.clockScale = 2;
   }
-  event.displayState.clockScale = Math.min(1.8, Math.max(0.7, event.displayState.clockScale));
+  event.displayState.clockScale = Math.min(2, Math.max(0.7, event.displayState.clockScale));
   if (!['compact', 'large', 'xlarge', 'huge'].includes(event.displayState.textSize)) {
     event.displayState.textSize = 'large';
   }
@@ -2048,8 +2048,8 @@ function normalizeDisplayPreset(input = {}) {
   const mode = ['auto', 'manual', 'song'].includes(input.mode) ? input.mode : 'auto';
   const theme = ['dark', 'light'].includes(input.theme) ? input.theme : 'dark';
   const backgroundPreset = ['none', 'warm', 'sanctuary', 'soft-light'].includes(input.backgroundPreset) ? input.backgroundPreset : 'none';
-  const clockPosition = ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(input.clockPosition) ? input.clockPosition : 'top-right';
-  const clockScale = typeof input.clockScale === 'number' ? Math.min(1.8, Math.max(0.7, input.clockScale)) : 1;
+  const clockPosition = ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(input.clockPosition) ? input.clockPosition : 'bottom-right';
+  const clockScale = typeof input.clockScale === 'number' ? Math.min(2, Math.max(0.7, input.clockScale)) : 2;
   const textSize = ['compact', 'large', 'xlarge', 'huge'].includes(input.textSize) ? input.textSize : 'large';
   const textScale = normalizeDisplayTextScale(input.textScale, 1);
   const screenStyle = ['focus', 'wide'].includes(input.screenStyle) ? input.screenStyle : 'focus';

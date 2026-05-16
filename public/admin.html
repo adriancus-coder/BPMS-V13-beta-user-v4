@@ -544,6 +544,16 @@
                   <select id="displaySecondaryLanguageSelect"></select>
                   <div class="small">Choose "Single language" to keep the current full-screen layout.</div>
                 </div>
+                <div>
+                  <label>Text zoom</label>
+                  <div class="button-row compact-row clock-size-row">
+                    <button id="textZoomMinusBtn" class="btn btn-dark" type="button">-</button>
+                    <span id="displayTextScaleValue" class="status-pill">100%</span>
+                    <button id="textZoomPlusBtn" class="btn btn-dark" type="button">+</button>
+                    <input id="displayTextScaleInput" type="hidden" value="1">
+                  </div>
+                  <div class="small">Fine tune when the projector needs manual fitting.</div>
+                </div>
               </div>
               <div class="split-2">
                 <div>
@@ -587,31 +597,20 @@
                 <div>
                   <label>Clock position</label>
                   <select id="displayClockPositionSelect">
-                    <option value="top-right" selected>Clock top right</option>
+                    <option value="top-right">Clock top right</option>
                     <option value="top-left">Clock top left</option>
-                    <option value="bottom-right">Clock bottom right</option>
+                    <option value="bottom-right" selected>Clock bottom right</option>
                     <option value="bottom-left">Clock bottom left</option>
                   </select>
-                </div>
-                <div>
-                  <label>Clock size</label>
+                  <label style="margin-top: 12px;">Clock size</label>
                   <div class="button-row compact-row clock-size-row">
                     <button id="clockSizeMinusBtn" class="btn btn-dark" type="button">-</button>
-                    <span id="displayClockScaleValue" class="status-pill">100%</span>
+                    <span id="displayClockScaleValue" class="status-pill">200%</span>
                     <button id="clockSizePlusBtn" class="btn btn-dark" type="button">+</button>
-                    <input id="displayClockScaleInput" type="hidden" value="1">
+                    <input id="displayClockScaleInput" type="hidden" value="2">
                   </div>
                 </div>
-                <div>
-                  <label>Text zoom</label>
-                  <div class="button-row compact-row clock-size-row">
-                    <button id="textZoomMinusBtn" class="btn btn-dark" type="button">-</button>
-                    <span id="displayTextScaleValue" class="status-pill">100%</span>
-                    <button id="textZoomPlusBtn" class="btn btn-dark" type="button">+</button>
-                    <input id="displayTextScaleInput" type="hidden" value="1">
-                  </div>
-                  <div class="small">Fine tune when the projector needs manual fitting.</div>
-                </div>
+                <div></div>
               </div>
               <label>Custom background image URL</label>
               <input id="displayBackgroundInput" type="text" placeholder="Optional image URL overrides preset">

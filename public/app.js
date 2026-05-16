@@ -341,6 +341,15 @@ function filterAndSortLibrary(items = [], searchId, sortId) {
     });
 }
 
+// V14.5: Clear search input + reset library list after major action
+function clearLibrarySearch(searchId, renderFn, items) {
+  const input = $(searchId);
+  if (input && input.value) {
+    input.value = '';
+    if (typeof renderFn === 'function') renderFn(items);
+  }
+}
+
 function getTargetEventChoices(selectedId = '') {
   return (availableEventsList || [])
     .map((event) => {
@@ -521,7 +530,7 @@ function refreshDisplayControls() {
   }
   if (clockScaleInput) {
     const scale = Number(currentEvent?.displayState?.clockScale || 1);
-    clockScaleInput.value = String(Math.min(1.8, Math.max(0.7, scale)));
+    clockScaleInput.value = String(Math.min(2, Math.max(0.7, scale)));
   }
   if (clockScaleValue) {
     const scale = Number(clockScaleInput?.value || currentEvent?.displayState?.clockScale || 1);
@@ -1812,7 +1821,7 @@ async function adjustClockScale(delta) {
   const input = $('displayClockScaleInput');
   if (!input) return;
   const current = Number(input.value || currentEvent?.displayState?.clockScale || 1);
-  const next = Math.min(1.8, Math.max(0.7, Math.round((current + delta) * 10) / 10));
+  const next = Math.min(2, Math.max(0.7, Math.round((current + delta) * 10) / 10));
   input.value = String(next);
   if ($('displayClockScaleValue')) $('displayClockScaleValue').textContent = `${Math.round(next * 100)}%`;
   await applyDisplayPartial({ clockScale: next });
@@ -3981,6 +3990,7 @@ $('globalSongLibraryList').addEventListener('click', async (e) => {
   if (action === 'load') {
     fillSongEditor(item);
     setStatus('Loaded from church library.');
+    clearLibrarySearch('globalSongLibrarySearch', renderGlobalSongLibrary, currentGlobalSongLibrary);
     return;
   }
   if (action === 'send') {
@@ -3992,7 +4002,10 @@ $('globalSongLibraryList').addEventListener('click', async (e) => {
     // can immediately search for the next song. Only close on success — on failure
     // (network error, server error, missing event) the card stays open for retry.
     // Other actions (load/add/delete) intentionally do NOT trigger auto-close.
-    if (ok) btn.closest('.library-card-details')?.removeAttribute('open');
+    if (ok) {
+      btn.closest('.library-card-details')?.removeAttribute('open');
+      clearLibrarySearch('globalSongLibrarySearch', renderGlobalSongLibrary, currentGlobalSongLibrary);
+    }
     return;
   }
   if (action === 'add') {
@@ -4004,6 +4017,7 @@ $('globalSongLibraryList').addEventListener('click', async (e) => {
     if (!data.ok) return alert(data.error || 'Could not add item to event.');
     const targetEventName = availableEventsList.find((event) => event.id === targetEventId)?.name || 'selected event';
     setStatus(`Added to ${targetEventName}.`);
+    clearLibrarySearch('globalSongLibrarySearch', renderGlobalSongLibrary, currentGlobalSongLibrary);
     return;
   }
   if (action === 'delete') {
@@ -4066,6 +4080,7 @@ $('manualLibraryList')?.addEventListener('click', async (e) => {
     if ($('manualSourceLang')) $('manualSourceLang').value = item.sourceLang || currentEvent?.sourceLang || 'ro';
     switchTab('manual');
     setStatus('Pinned text loaded into editor.');
+    clearLibrarySearch('manualLibrarySearch', renderPinnedTextLibrary, currentPinnedTextLibrary);
     return;
   }
   if (action === 'send') {
@@ -4073,6 +4088,7 @@ $('manualLibraryList')?.addEventListener('click', async (e) => {
     $('manualText').value = item.text || '';
     if ($('manualSourceLang')) $('manualSourceLang').value = item.sourceLang || currentEvent?.sourceLang || 'ro';
     await sendManualText('manual');
+    clearLibrarySearch('manualLibrarySearch', renderPinnedTextLibrary, currentPinnedTextLibrary);
     return;
   }
   if (action === 'delete') {
