@@ -3669,6 +3669,29 @@ body.participant-preview-mode .participant-event-chooser {
   padding: clamp(24px, 5vw, 64px);
 }
 
+/* V14.1: Same projection layout for window-level fullscreen (F11). The "Full
+   screen" button uses the Fullscreen API, which is tab-scoped — switching to
+   the admin tab for Clear/Edit drops it. F11 is window-scoped and survives
+   tab switches, but does not fire fullscreenchange / add .display-fullscreen,
+   so this media query mirrors the rules above for F11. */
+@media (display-mode: fullscreen) {
+  #displayChrome {
+    display: none;
+  }
+
+  .unified-display-shell {
+    padding: 0;
+  }
+
+  .unified-display-live {
+    min-height: 100vh;
+    border-radius: 0;
+    border: 0;
+    box-shadow: none;
+    padding: clamp(24px, 5vw, 64px);
+  }
+}
+
 @keyframes displayFadeIn {
   from {
     opacity: 0;
