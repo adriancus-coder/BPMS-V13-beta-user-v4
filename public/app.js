@@ -312,11 +312,25 @@ function renderQuickLanguageButtons() {
   }).join('');
 }
 
+// V14.4: Helper for case + diacritic-insensitive search (RO ăâîșț, NO æøå, etc.)
+function normalizeForSearch(str) {
+  if (!str) return '';
+  return String(str)
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '');
+}
+
 function filterAndSortLibrary(items = [], searchId, sortId) {
-  const query = ($(searchId)?.value || '').trim().toLowerCase();
+  const query = normalizeForSearch(($(searchId)?.value || '').trim());
   const sortMode = $(sortId)?.value || 'az';
   return (Array.isArray(items) ? items : [])
-    .filter((item) => (item.title || '').toLowerCase().includes(query))
+    .filter((item) => {
+      if (!query) return true;
+      // Search in title + content (text field is flat string of all verses)
+      return normalizeForSearch(item.title).includes(query)
+          || normalizeForSearch(item.text).includes(query);
+    })
     .sort((a, b) => {
       if (sortMode === 'recent') {
         return new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0);
