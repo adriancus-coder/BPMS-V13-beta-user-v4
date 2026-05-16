@@ -15,6 +15,7 @@ const packageJson = require('./package.json');
 const { createLogger } = require('./lib/logger');
 const { createJsonDbStore } = require('./lib/db');
 const { createTranslationService } = require('./lib/translation');
+const { installRateLimitGC } = require('./lib/rate-limit-gc');
 const { registerAdminRoutes } = require('./routes/admin');
 const { registerOrgRoutes } = require('./routes/org');
 const { registerEventRoutes } = require('./routes/events');
@@ -246,6 +247,27 @@ const LANGUAGES = {
   el: 'Greek'
 };
 
+// HOTFIX V7.1: hoisted to module-constants area (was at line ~1586) so migrateNormalizeContent
+// can safely call normalizeTextInput at startup without TDZ ReferenceError. Function declarations
+// are hoisted but `const` values are not — they were initialized AFTER the migration call ran.
+// See full normalizeTextInput body below for usage / docs.
+const ZERO_WIDTH_CHARS = /[​‌‍⁠﻿]/g;
+const MOJIBAKE_MAP = Object.freeze({
+  // Romanian (most relevant to bug)
+  'Ã®': 'î', 'Ã¢': 'â', 'Ã‚': 'Â', 'ÃŽ': 'Î',
+  'È™': 'ș', 'È›': 'ț', 'È˜': 'Ș', 'Èš': 'Ț',
+  // Norwegian / Scandinavian
+  'Ã¥': 'å', 'Ã¦': 'æ', 'Ã¸': 'ø', 'Ã…': 'Å', 'Ã†': 'Æ', 'Ã˜': 'Ø',
+  // West-European latin
+  'Ã©': 'é', 'Ã¨': 'è', 'Ãª': 'ê', 'Ã«': 'ë',
+  'Ã¡': 'á', 'Ã ': 'à', 'Ã­': 'í', 'Ã²': 'ò', 'Ã³': 'ó', 'Ã¶': 'ö',
+  'Ã¬': 'ì', 'Ãº': 'ú', 'Ã¹': 'ù', 'Ã¼': 'ü', 'Ã¤': 'ä',
+  'ÃŸ': 'ß', 'Ã±': 'ñ',
+  // Smart punctuation (mojibake of curly quotes/dashes/ellipsis)
+  'â€™': '’', 'â€˜': '‘', 'â€œ': '“', 'â€': '”',
+  'â€"': '—', 'â€"': '–', 'â€¦': '…'
+});
+
 const LANGUAGE_NAMES_RO_LEGACY = {
   ro: 'Română',
   no: 'Norvegiană',
@@ -282,6 +304,29 @@ const LANGUAGE_NAMES_RO = {
   fa: 'Persană',
   hu: 'Maghiară',
   el: 'Greacă'
+};
+
+// V11.5: Endonyms — language names written in their own language.
+// Used for end-user-facing UI (Main Screen cards in translate.html, Participant phone view).
+// Admin UI continues to use LANGUAGE_NAMES_RO (operator-facing in Romanian).
+// Keys mirror LANGUAGES exactly (16 codes verified).
+const LANGUAGE_ENDONYMS = {
+  ro: 'Română',
+  no: 'Norsk',
+  ru: 'Русский',
+  uk: 'Українська',
+  en: 'English',
+  es: 'Español',
+  fr: 'Français',
+  de: 'Deutsch',
+  it: 'Italiano',
+  pt: 'Português',
+  pl: 'Polski',
+  tr: 'Türkçe',
+  ar: 'العربية',
+  fa: 'فارسی',
+  hu: 'Magyar',
+  el: 'Ελληνικά'
 };
 
 function ensureDataDir() {
@@ -1275,6 +1320,7 @@ if (!db.globalAccess || typeof db.globalAccess !== 'object') {
 }
 syncLegacyGlobalsFromDefaultOrg();
 backfillPushSubscriptionRoles();
+migrateNormalizeContent();
 
 function backfillPushSubscriptionRoles() {
   let changed = 0;
@@ -1292,6 +1338,114 @@ function backfillPushSubscriptionRoles() {
     logger.info?.(`Push subscriptions backfilled with role 'participant': ${changed}`);
     try { dbStore.save(db); } catch (_) {}
   }
+}
+
+// BUGFIX V7: one-shot migration that normalizes existing content (paste-from-Word legacy with
+// mixed sedilla/comma diacritics, mojibake, BOM). Runs at server startup; idempotent via
+// `_normalizedAt` marker per item.
+//
+// STRATEGY DECISION for changed-text songs:
+//   We choose (a) WIPE `translationsByHash` rather than (b) intelligent re-hash mapping.
+//   Rationale: the whole point of V7 is that the OLD translations were generated from contaminated
+//   input — preserving them would also preserve any wrong-language artifacts. A clean re-translate
+//   on next "Send to Live" guarantees the OpenAI call sees normalized RO text and produces correct
+//   target-language output. One-time cost, only for content that actually changed.
+//
+// Scope: globalSongLibrary + pinnedTextLibrary. Glossary entries are SKIPPED (low paste risk;
+// admins type them directly; complex key-rewrite for changed source words). Org memory SKIPPED
+// (mostly auto-generated content from translations, not paste).
+function migrateNormalizeContent({ skipBackup = false } = {}) {
+  const stats = { songsScanned: 0, songsChanged: 0, songsSkipped: 0,
+                  pinnedScanned: 0, pinnedChanged: 0, pinnedSkipped: 0,
+                  hashesWiped: 0, backupPath: null };
+  let needsSave = false;
+  let backupTaken = false;
+
+  const tryBackup = () => {
+    if (skipBackup || backupTaken) return;
+    try {
+      if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const backupPath = path.join(DATA_DIR, `sessions.backup-pre-normalize-${ts}.json`);
+      if (fs.existsSync(DB_FILE)) {
+        fs.copyFileSync(DB_FILE, backupPath);
+        stats.backupPath = backupPath;
+        backupTaken = true;
+        logger.info(`migrate-normalize: backup created at ${backupPath}`);
+      } else {
+        logger.info('migrate-normalize: no DB_FILE yet — backup skipped');
+      }
+    } catch (err) {
+      logger.warn('migrate-normalize: backup failed:', err?.message || err);
+    }
+  };
+
+  const processItem = (item, kind) => {
+    if (!item || typeof item !== 'object') return false;
+    if (item._normalizedAt) return false;  // already migrated
+    let changed = false;
+
+    const originalText = typeof item.text === 'string' ? item.text : '';
+    const normalizedText = normalizeTextInput(originalText);
+    const titleChanged = typeof item.title === 'string' && normalizeTextInput(item.title) !== item.title;
+    const textChanged = normalizedText !== originalText;
+
+    if (textChanged || titleChanged) {
+      tryBackup();
+      if (textChanged) {
+        item._textBeforeNormalize = originalText;
+        item.text = normalizedText;
+        if (kind === 'song' && item.translationsByHash && typeof item.translationsByHash === 'object') {
+          // Strategy (a): wipe — clean re-translate on next Send to Live
+          const hashCount = Object.keys(item.translationsByHash).length;
+          item._translationsByHashBeforeNormalize = item.translationsByHash;
+          item.translationsByHash = {};
+          stats.hashesWiped += hashCount;
+        }
+        changed = true;
+      }
+      if (titleChanged) {
+        item._titleBeforeNormalize = item.title;
+        item.title = normalizeTextInput(item.title);
+        changed = true;
+      }
+    }
+
+    item._normalizedAt = new Date().toISOString();
+    return changed || true;  // mark either way — even unchanged items get the marker so we don't re-scan
+  };
+
+  for (const orgId of Object.keys(db.organizations || {})) {
+    const org = db.organizations[orgId];
+    if (!org) continue;
+    const songs = Array.isArray(org.globalSongLibrary) ? org.globalSongLibrary : [];
+    for (const song of songs) {
+      stats.songsScanned += 1;
+      if (song?._normalizedAt) { stats.songsSkipped += 1; continue; }
+      const before = JSON.stringify({ text: song?.text || '', title: song?.title || '' });
+      processItem(song, 'song');
+      const after = JSON.stringify({ text: song?.text || '', title: song?.title || '' });
+      if (before !== after) { stats.songsChanged += 1; needsSave = true; }
+      else needsSave = true;  // we set _normalizedAt marker anyway
+    }
+    const pinned = Array.isArray(org.pinnedTextLibrary) ? org.pinnedTextLibrary : [];
+    for (const item of pinned) {
+      stats.pinnedScanned += 1;
+      if (item?._normalizedAt) { stats.pinnedSkipped += 1; continue; }
+      const before = JSON.stringify({ text: item?.text || '', title: item?.title || '' });
+      processItem(item, 'pinned');
+      const after = JSON.stringify({ text: item?.text || '', title: item?.title || '' });
+      if (before !== after) { stats.pinnedChanged += 1; needsSave = true; }
+      else needsSave = true;
+    }
+  }
+
+  if (needsSave) {
+    try { dbStore.save(db); } catch (err) { logger.warn('migrate-normalize: save failed:', err?.message || err); }
+  }
+
+  logger.info(`migrate-normalize: songs scanned=${stats.songsScanned} changed=${stats.songsChanged} skipped=${stats.songsSkipped} | pinned scanned=${stats.pinnedScanned} changed=${stats.pinnedChanged} skipped=${stats.pinnedSkipped} | hashesWiped=${stats.hashesWiped}`);
+  return stats;
 }
 
 function saveDb() {
@@ -1391,16 +1545,37 @@ const LIVE_TEXT_MAX_CHARS = 160;
 const LIVE_TEXT_SOFT_WAIT_MS = 200;
 const LIVE_TEXT_HARD_WAIT_MS = 1000;
 const AZURE_LIVE_TEXT_MIN_WORDS = 3;
-const AZURE_LIVE_TEXT_TARGET_WORDS = 5;
-const AZURE_LIVE_TEXT_MAX_WORDS = 8;
-const AZURE_LIVE_TEXT_SOFT_WAIT_MS = 100;
-const AZURE_LIVE_TEXT_HARD_WAIT_MS = 400;
+const AZURE_LIVE_TEXT_TARGET_WORDS = 6;
+const AZURE_LIVE_TEXT_MAX_WORDS = 12;
+const AZURE_LIVE_TEXT_SOFT_WAIT_MS = 150;
+const AZURE_LIVE_TEXT_HARD_WAIT_MS = 600;
+// SMART FLUSH V2: threshold pentru proactive flush partial (mai mic decât MAX_WORDS)
+const AZURE_PARTIAL_FLUSH_THRESHOLD = 8;  // partial flush la 8 cuvinte (era 12 prin MAX_WORDS)
 
+// Conectori clasici - blochează flush la sfârșit (păstrează în buffer pentru context)
+// ATENȚIE: scoatem 'și', 'si', 'să', 'sa', 'dar', 'iar' - acum sunt FLUSH_BEFORE triggers
 const BUFFER_CONNECTORS = new Set([
-  'și', 'si', 'să', 'sa', 'că', 'ca', 'dar', 'iar', 'ori', 'sau',
+  'ca',  // EXCEPȚIE: 'ca' rămâne conector (ca să, ca un)
+  'ori', 'sau',
   'de', 'la', 'în', 'in', 'cu', 'pe', 'din', 'spre', 'pentru',
   'când', 'cand', 'care', 'ce', 'către', 'catre',
   'og', 'at', 'men', 'som', 'i', 'på', 'med', 'til', 'for'
+]);
+
+// SMART FLUSH V1: cuvinte care DECLANȘEAZĂ flush proactiv în limba română
+// FLUSH_BEFORE: cuvântul curent începe propoziție nouă - flush conținut ANTERIOR, păstrează cuvântul
+const FLUSH_BEFORE_WORDS = new Set([
+  'și', 'si',
+  'să', 'sa',
+  'dar',
+  'iar',
+  'așa', 'asa'
+]);
+
+// FLUSH_AFTER: cuvântul ÎNCHEIE propoziția curentă - flush propoziția cu acest cuvânt inclus
+const FLUSH_AFTER_WORDS = new Set([
+  'că',
+  'ta', 'mea', 'lui', 'ei', 'noastră', 'noastra', 'voastră', 'voastra', 'lor'
 ]);
 
 function summarizeEvent(event) {
@@ -1442,8 +1617,48 @@ function sanitizeTranscriptText(text) {
     .trim();
 }
 
+// BUGFIX V7: agnostic input normalizer for ALL user-supplied text (paste/save/edit).
+// IDEMPOTENT — calling repeatedly produces same result. Steps:
+//   1. Strip BOM at start (﻿)
+//   2. NFC Unicode normalization (canonical composition: 'a'+combining-diacritic → 'á')
+//   3. Mojibake repair (Ã®/È™/â€™ etc. → original chars from double-UTF-8 history)
+//   4. Romanian sedilla → modern comma-below (Latin-2 → Unicode 3.0+)
+//      THIS IS THE ROOT CAUSE FIX for the "OpenAI returns wrong language" bug:
+//      mixed ş (U+015F)/ţ (U+0163) with ș (U+0219)/ț (U+021B) confused gpt-4o-mini
+//      and made it interpret RO text as non-RO → returned English instead of Norwegian.
+//   5. Strip remaining zero-width chars (U+200B/200C/200D/2060/FEFF)
+// NOT done: smart-quote replacement (could change user-facing intent).
+// HOTFIX V7.1: ZERO_WIDTH_CHARS + MOJIBAKE_MAP hoisted near LANGUAGES (top of file) to avoid
+// TDZ ReferenceError when migrateNormalizeContent runs at startup before this line is reached.
+function normalizeTextInput(text) {
+  if (text === null || text === undefined) return '';
+  let s = String(text);
+  if (!s) return '';
+  // 1. BOM strip
+  if (s.charCodeAt(0) === 0xFEFF) s = s.slice(1);
+  // 2. NFC normalization (canonical composition)
+  if (typeof s.normalize === 'function') {
+    try { s = s.normalize('NFC'); } catch (_) { /* fall through if engine refuses */ }
+  }
+  // 3. Mojibake repair (split/join is fast for short strings; avoids regex special-char headaches)
+  for (const bad in MOJIBAKE_MAP) {
+    if (s.indexOf(bad) !== -1) s = s.split(bad).join(MOJIBAKE_MAP[bad]);
+  }
+  // 4. Romanian: sedilla (Latin-2) → comma-below (Unicode 3.0+)
+  s = s
+    .replace(/ş/g, 'ș')  // ş → ș
+    .replace(/Ş/g, 'Ș')  // Ş → Ș
+    .replace(/ţ/g, 'ț')  // ţ → ț
+    .replace(/Ţ/g, 'Ț'); // Ţ → Ț
+  // 5. Strip leftover zero-width chars
+  s = s.replace(ZERO_WIDTH_CHARS, '');
+  return s;
+}
+
 function sanitizeStructuredText(text) {
-  return String(text || '')
+  // BUGFIX V7: normalize encoding + mojibake first, then existing whitespace/punctuation cleanup.
+  // Single point of intervention — all save/edit/translate paths flow through this function.
+  return normalizeTextInput(text)
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .replace(/…/g, '')
@@ -1674,14 +1889,53 @@ function shouldFlushBufferedText(text, options = {}) {
   if (!clean) return false;
   const words = countWords(clean);
   const last = getLastWord(clean);
+  const lastLower = String(last || '').toLowerCase();
   const minWords = options.minWords || LIVE_TEXT_MIN_WORDS;
   const targetWords = options.targetWords || LIVE_TEXT_TARGET_WORDS;
   const maxWords = options.maxWords || LIVE_TEXT_MAX_WORDS;
+
+  // 1. Punctuație finală (.!?) → flush dacă min words
   if (/[.!?]\s*$/.test(clean) && words >= minWords) return true;
+
+  // 2. Punctuație medie (,;:) → flush dacă min words
   if (/[,;:]\s*$/.test(clean) && words >= minWords) return true;
-  if (words >= targetWords && !BUFFER_CONNECTORS.has(last)) return true;
+
+  // 3. SMART FLUSH V1 - FLUSH_AFTER: ultimul cuvânt e „că" sau posesiv → flush imediat (cu min words)
+  if (FLUSH_AFTER_WORDS.has(lastLower) && words >= minWords) return true;
+
+  // 4. Target words atinse + ultimul cuvânt NU e conector clasic → flush
+  if (words >= targetWords && !BUFFER_CONNECTORS.has(lastLower)) return true;
+
+  // 5. Max words override (forțat oricum)
   if (words >= maxWords) return true;
+
   return false;
+}
+
+// TASK 37: Tracker pentru text deja trimis prin partial flush
+// Previne dubluri când Azure trimite și `recognized` după un partial flush
+const partialFlushTracker = new Map(); // eventId -> { lastFlushedText, timestamp }
+
+function isPartialFlushDuplicate(eventId, newText, windowMs = 3000) {
+  const tracker = partialFlushTracker.get(eventId);
+  if (!tracker) return false;
+  if (Date.now() - tracker.timestamp > windowMs) {
+    partialFlushTracker.delete(eventId);
+    return false;
+  }
+  // Dacă noul text începe cu textul deja flush-uit, e probabil duplicat
+  const norm = (s) => sanitizeTranscriptText(s || '').toLowerCase().trim();
+  const old = norm(tracker.lastFlushedText);
+  const fresh = norm(newText);
+  if (!old || !fresh) return false;
+  return fresh.startsWith(old) || old.startsWith(fresh) || fresh.includes(old.slice(0, 40));
+}
+
+function markPartialFlushed(eventId, text) {
+  partialFlushTracker.set(eventId, {
+    lastFlushedText: text,
+    timestamp: Date.now()
+  });
 }
 
 function sanitizeRemoteOperator(operator, includeCode = false) {
@@ -1739,6 +1993,7 @@ function normalizeEvent(event, options = {}) {
     mode: event.mode || 'live',
     transcriptionPaused: !!event.transcriptionPaused,
     transcriptionOnAir: !!event.transcriptionOnAir,
+    bibleMode: !!event.bibleMode,
     songState: event.songState || defaultSongState(),
     latestDisplayEntry: cloneDisplayEntry(event.latestDisplayEntry),
     displayState: event.displayState || defaultDisplayState(),
@@ -2301,6 +2556,7 @@ async function createEvent({ name, speed, sourceLang, targetLangs, baseUrl, sche
     mode: 'live',
     transcriptionPaused: false,
     transcriptionOnAir: false,
+    bibleMode: false,
     pushSubscriptions: [],
     songState: defaultSongState(),
     latestDisplayEntry: null,
@@ -2360,19 +2616,60 @@ const TRANSLATION_CACHE_FILE = path.join(DATA_DIR, 'translation-cache.json');
 let translationCacheDirty = false;
 let translationCacheFlushTimer = null;
 
+// BUGFIX V5: append-only log of OpenAI language-mismatch events for investigation
+// (max 500 entries, oldest pruned). Helps diagnose what prompt/text triggers the model to drift.
+const LANG_MISMATCH_LOG_FILE = path.join(DATA_DIR, 'lang-mismatch-log.json');
+const LANG_MISMATCH_LOG_LIMIT = 500;
+
+function logLangMismatch(entry) {
+  try {
+    let log = [];
+    if (fs.existsSync(LANG_MISMATCH_LOG_FILE)) {
+      try {
+        const raw = fs.readFileSync(LANG_MISMATCH_LOG_FILE, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) log = parsed;
+      } catch (parseErr) {
+        logger.warn('lang-mismatch log parse failed, starting fresh:', parseErr?.message || parseErr);
+      }
+    }
+    log.push({ ts: new Date().toISOString(), ...entry });
+    if (log.length > LANG_MISMATCH_LOG_LIMIT) log = log.slice(-LANG_MISMATCH_LOG_LIMIT);
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(LANG_MISMATCH_LOG_FILE, JSON.stringify(log), 'utf8');
+  } catch (err) {
+    logger.warn('lang-mismatch log write failed:', err?.message || err);
+  }
+}
+
 function loadPersistentTranslationCache() {
   try {
     if (!fs.existsSync(TRANSLATION_CACHE_FILE)) return;
     const raw = fs.readFileSync(TRANSLATION_CACHE_FILE, 'utf8');
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      let loaded = 0;
+      // BUGFIX V5: dedupe by key BEFORE applying the cache limit — duplicate writes from
+      // previous concurrent-server races shouldn't eat into the 2000-entry budget.
+      // Last value wins (most recent write is kept), matching Map.set semantics.
+      const dedupMap = new Map();
+      let duplicates = 0;
       for (const pair of parsed) {
         if (Array.isArray(pair) && pair.length === 2 && pair[0] && pair[1]) {
-          translationCache.set(String(pair[0]), String(pair[1]));
-          loaded += 1;
-          if (translationCache.size >= TRANSLATION_CACHE_LIMIT) break;
+          const key = String(pair[0]);
+          if (dedupMap.has(key)) duplicates += 1;
+          dedupMap.set(key, String(pair[1]));
         }
+      }
+      let loaded = 0;
+      for (const [key, value] of dedupMap) {
+        translationCache.set(key, value);
+        loaded += 1;
+        if (translationCache.size >= TRANSLATION_CACHE_LIMIT) break;
+      }
+      if (duplicates) {
+        logger.info(`translation cache: removed ${duplicates} duplicate keys at load`);
+        translationCacheDirty = true;
+        scheduleTranslationCacheFlush();
       }
       logger.info(`translation cache: restored ${loaded} entries from disk`);
     }
@@ -2632,8 +2929,88 @@ async function translateText(text, langCode, event, sourceLangOverride = '', opt
     }
     const translatedText = result.text;
     if (result.tokens) recordTranslationUsage(event, result.tokens);
-    const translated = sanitizeStructuredText(translatedText);
+    let translated = sanitizeStructuredText(translatedText);
+
+    // BUGFIX V5: validate target language. On high-confidence mismatch, retry once with explicit
+    // language constraint (non-streaming only — streaming has already pushed deltas to the client).
+    // If retry still wrong → skip cache write so the bad text doesn't poison cache for next requests;
+    // return '' so V3 frontend shows loading dots instead of source-language fallback.
+    let langValidationOk = true;
     if (translated) {
+      const detected = detectLanguage(translated);
+      if (detected.lang !== 'unknown' && detected.lang !== langCode && detected.confidence === 'high') {
+        const targetLangName = LANGUAGES[langCode] || langCode;
+        console.warn(`[LANG_MISMATCH] expected=${langCode} (${targetLangName}) detected=${detected.lang} src="${cleanText.slice(0, 80)}" out="${translated.slice(0, 80)}"`);
+        logLangMismatch({
+          stage: 'initial',
+          expectedLang: langCode,
+          expectedLangName: targetLangName,
+          detectedLang: detected.lang,
+          detectedConfidence: detected.confidence,
+          sourceLang,
+          sourceText: cleanText.slice(0, 500),
+          badText: translated.slice(0, 500),
+          cacheKey: cacheKey.slice(0, 200),
+          streaming: !!options.onDelta
+        });
+
+        if (!options.onDelta) {
+          // Non-streaming: retry with explicit language constraint
+          try {
+            const retryMessages = [
+              inputMessages[0],
+              {
+                role: 'system',
+                content: `IMPORTANT: Respond ONLY in ${targetLangName}. Do NOT output any other language. The user explicitly requires ${targetLangName}.`
+              },
+              ...inputMessages.slice(1)
+            ];
+            const retryResult = await translationService.translateWithResponsesDetailed({
+              model: OPENAI_MODEL,
+              input: retryMessages
+            });
+            if (retryResult.tokens) recordTranslationUsage(event, retryResult.tokens);
+            const retryText = sanitizeStructuredText(retryResult.text || '');
+            const retryDetected = retryText ? detectLanguage(retryText) : { lang: 'unknown', confidence: 'low' };
+            if (retryText && (retryDetected.lang === langCode || retryDetected.lang === 'unknown')) {
+              // Retry succeeded (right language, or text too short to validate confidently)
+              translated = retryText;
+              logLangMismatch({
+                stage: 'retry-success',
+                expectedLang: langCode,
+                detectedLang: retryDetected.lang,
+                detectedConfidence: retryDetected.confidence,
+                retriedText: retryText.slice(0, 200)
+              });
+            } else {
+              // Retry still wrong — refuse to cache, return empty
+              langValidationOk = false;
+              logLangMismatch({
+                stage: 'retry-failed',
+                expectedLang: langCode,
+                detectedLang: retryDetected.lang,
+                detectedConfidence: retryDetected.confidence,
+                retriedText: retryText.slice(0, 200)
+              });
+              console.warn(`[LANG_MISMATCH] retry failed for ${langCode}, returning empty (V3 frontend will show loading dots)`);
+            }
+          } catch (retryErr) {
+            langValidationOk = false;
+            logger.warn(`lang-mismatch retry error ${langCode}:`, retryErr?.message || retryErr);
+            logLangMismatch({
+              stage: 'retry-error',
+              expectedLang: langCode,
+              error: String(retryErr?.message || retryErr)
+            });
+          }
+        } else {
+          // Streaming: client already saw bad deltas; skip cache write to prevent poisoning future requests
+          langValidationOk = false;
+        }
+      }
+    }
+
+    if (translated && langValidationOk) {
       writeTranslationCache(cacheKey, translated);
       updateTranslationMonitor(event, {
         pendingTranslations: Math.max(0, Number(event.translationMonitor?.pendingTranslations || 1) - 1),
@@ -2642,6 +3019,18 @@ async function translateText(text, langCode, event, sourceLangOverride = '', opt
         lastTargetLang: langCode
       });
       return translated;
+    }
+    if (!langValidationOk) {
+      // BUGFIX V5: bad-language translation refused. Skip cache write, return empty string.
+      // V3 frontend (participant.js / translate.js / remote.js) treats '' as "not yet translated"
+      // and shows loading dots instead of the source-language fallback.
+      updateTranslationMonitor(event, {
+        pendingTranslations: Math.max(0, Number(event.translationMonitor?.pendingTranslations || 1) - 1),
+        lastTranslateFinishedAt: new Date().toISOString(),
+        lastTranslateDurationMs: Date.now() - startedAt,
+        lastTargetLang: langCode
+      });
+      return '';
     }
     const fallback = applyGlossary(cleanText, glossary);
     writeTranslationCache(cacheKey, fallback);
@@ -2675,6 +3064,63 @@ function detectSourceLangByScript(text) {
   if (/[æøåÆØÅ]/.test(sample)) return 'no';
   if (/[ăâîșşțţĂÂÎȘŞȚŢ]/.test(sample)) return 'ro';
   return '';
+}
+
+// BUGFIX V5: agnostic language detector for short-medium texts (1-300 words).
+// Heuristic-based (no extra deps): combines script signals (cyrillic, nordic, romanian, polish, hungarian)
+// with word-list scoring for latin-script languages without unique diacritics (en/es/fr/it/pt).
+// Returns { lang, confidence: 'low'|'medium'|'high' }. Returns 'unknown' when no clear signal — never
+// flags ambiguous text. Designed so adding new languages = extend LANG_DETECT_WORDS or add a script
+// regex above the word-list pass; no consumer refactor needed.
+const LANG_DETECT_WORDS = {
+  en: ['the','and','you','we','our','is','are','to','of','in','for','on','with','that','have','it','this','be','from','will','your'],
+  no: ['og','er','vi','ikke','jeg','det','en','et','på','til','av','som','har','i','de','for','men','han','hun','vår','være'],
+  es: ['el','la','los','las','que','de','y','en','un','una','es','con','por','para','no','su','se','del','al','tu','nuestro'],
+  fr: ['le','la','les','que','de','et','en','un','une','est','dans','pour','avec','nous','vous','sur','ce','je','pas','votre','notre'],
+  it: ['il','la','di','che','e','un','una','è','per','con','da','non','sono','noi','voi','ti','si','gli','le','nostro'],
+  pt: ['o','a','os','as','que','de','e','um','uma','é','com','para','não','nós','você','seu','sua','do','da','no','na','nosso']
+};
+
+function detectLanguage(text) {
+  const sample = String(text || '').trim();
+  if (sample.length < 15) return { lang: 'unknown', confidence: 'low' };
+
+  // Strong script signals first (high confidence — these characters don't appear elsewhere)
+  if (/[؀-ۿ]/.test(sample)) return { lang: 'ar', confidence: 'high' };
+  if (/[Ͱ-Ͽ]/.test(sample)) return { lang: 'el', confidence: 'high' };
+  if (/[Ѐ-ӿ]/.test(sample)) {
+    // Distinguish Ukrainian (has ґєіїҐЄІЇ) from Russian
+    if (/[ҐґЄєІіЇї]/.test(sample)) return { lang: 'uk', confidence: 'high' };
+    return { lang: 'ru', confidence: 'high' };
+  }
+  if (/[æøåÆØÅ]/.test(sample)) return { lang: 'no', confidence: 'high' };
+  if (/[ăâîșşțţĂÂÎȘŞȚŢ]/.test(sample)) return { lang: 'ro', confidence: 'high' };
+  if (/[ąęłńóśźżĄĘŁŃÓŚŹŻ]/.test(sample)) return { lang: 'pl', confidence: 'high' };
+  if (/[őűŐŰ]/.test(sample)) return { lang: 'hu', confidence: 'high' };
+  // German umlauts can appear in loan words too — medium confidence only
+  if (/[äöüÄÖÜß]/.test(sample)) return { lang: 'de', confidence: 'medium' };
+
+  // Word-list pass for latin-script languages without unique diacritics (en/es/fr/it/pt)
+  const lower = sample.toLowerCase();
+  const words = lower.split(/[^a-zàâçéèêëîïôûùüÿñæœ]+/i).filter((w) => w.length > 0);
+  if (words.length < 3) return { lang: 'unknown', confidence: 'low' };
+
+  const scores = {};
+  for (const [lang, set] of Object.entries(LANG_DETECT_WORDS)) {
+    const setLookup = new Set(set);
+    scores[lang] = words.filter((w) => setLookup.has(w)).length;
+  }
+  let bestLang = 'unknown';
+  let bestScore = 0;
+  for (const [lang, score] of Object.entries(scores)) {
+    if (score > bestScore) { bestScore = score; bestLang = lang; }
+  }
+  const sorted = Object.values(scores).sort((a, b) => b - a);
+  const gap = sorted[0] - (sorted[1] || 0);
+  const density = bestScore / words.length;
+  if (bestScore >= 3 && density > 0.15 && gap >= 2) return { lang: bestLang, confidence: 'high' };
+  if (bestScore >= 2 && density > 0.1) return { lang: bestLang, confidence: 'medium' };
+  return { lang: 'unknown', confidence: 'low' };
 }
 
 async function detectSourceLanguage(text, event) {
@@ -2961,6 +3407,11 @@ async function publishNewChunk(event, chunk, sourceLangOverride = '') {
 }
 
 async function processText(event, cleanText, { force = false, sourceLang = '' } = {}) {
+  // BUGFIX V7: defensive normalize on Azure speech recognition output.
+  // Azure SDK usually returns Unicode 3.0+ (modern RO chars), but applying normalize is idempotent
+  // and cheap. Protects against any edge case where mixed encoding leaks into the translation pipeline.
+  cleanText = normalizeTextInput(cleanText);
+
   if (processingLocks.get(event.id)) {
     // Un alt processText rulează pentru acest eveniment - re-introducem textul
     // în buffer și ieșim. flushSpeechBuffer îl va relua după ce lock-ul scapă.
@@ -3079,6 +3530,19 @@ function queueSpeechText(eventId, text, sourceLang = '', provider = getActiveSpe
   const event = db.events[eventId];
   if (event?.mode === 'song') return;
 
+  // SMART FLUSH V1: dacă noul text începe cu un cuvânt FLUSH_BEFORE,
+  // forțăm flush al buffer-ului ANTERIOR ÎNAINTE să adăugăm noul text
+  const newTextWords = String(text || '').trim().split(/\s+/);
+  const firstNewWord = String(newTextWords[0] || '').toLowerCase().replace(/[^\p{L}]/gu, '');
+
+  if (FLUSH_BEFORE_WORDS.has(firstNewWord)) {
+    const existingBuffer = speechBuffers.get(eventId);
+    if (existingBuffer && existingBuffer.text && countWords(existingBuffer.text) >= AZURE_LIVE_TEXT_MIN_WORDS) {
+      // Flush buffer existent - cuvântul nou va începe noul buffer
+      flushSpeechBuffer(eventId, true).catch(logger.error);
+    }
+  }
+
   const prev = speechBuffers.get(eventId) || { text: '', timer: null, startedAt: Date.now(), sourceLang, provider };
   const merged = mergeTranscriptText(prev.text, clean);
   if (prev.timer) clearTimeout(prev.timer);
@@ -3122,6 +3586,10 @@ function closeAzureSpeechSession(socketId) {
   const session = azureSpeechSessions.get(socketId);
   if (!session) return;
   azureSpeechSessions.delete(socketId);
+  // TASK 37: Cleanup partial flush tracker pentru acest event
+  if (session.eventId) {
+    partialFlushTracker.delete(session.eventId);
+  }
   try { session.pushStream?.close(); } catch (_) {}
   try {
     session.recognizer?.stopContinuousRecognitionAsync(
@@ -3170,7 +3638,7 @@ function startAzureSpeechSession(socket, event) {
   // Mode-ul se aplică la pornirea sesiunii. Pentru schimbare mid-Live: Stop + Start.
   const segmentationByMode = {
     rapid: '300',
-    balanced: '500',
+    balanced: '300',  // SMART FLUSH V2: redus de la 500 pentru vorbire continuă rapidă
     clear: '800'
   };
   const segmentationTimeout = segmentationByMode[event.speed] || segmentationByMode.balanced;
@@ -3186,14 +3654,78 @@ function startAzureSpeechSession(socket, event) {
   const audioConfig = sdk.AudioConfig.fromStreamInput(pushStream);
   const recognizer = new sdk.SpeechRecognizer(speechConfig, audioConfig);
 
+  // Tracker pentru cât de mult din partial-ul curent a fost deja trimis
+  let lastPartialLength = 0;
+
   recognizer.recognizing = (_, result) => {
     const text = sanitizeTranscriptText(result?.result?.text || '');
-    if (text) io.to(`event:${event.id}:admins`).emit('partial_transcript', { text });
+    if (!text) return;
+
+    io.to(`event:${event.id}:admins`).emit('partial_transcript', { text });
+
+    // BIBLE MODE: skip translation (recognition continues for transcript verification)
+    const currentEvent = db.events[event.id];
+    if (currentEvent?.bibleMode) return;
+
+    // TASK 37: Flush proactiv pe partial dacă text e lung
+    // Asta e MARE diferență față de comportamentul vechi care aștepta `recognized`
+    const words = countWords(text);
+
+    // SMART FLUSH V2: Trigger la AZURE_PARTIAL_FLUSH_THRESHOLD (8) ȘI nu e duplicat
+    if (words >= AZURE_PARTIAL_FLUSH_THRESHOLD) {
+      // Verific cu tracker dacă deja am flush-uit text similar
+      if (!isPartialFlushDuplicate(event.id, text)) {
+        // Calculez delta - doar partea nouă (după ce am flush-uit ultima oară)
+        const tracker = partialFlushTracker.get(event.id);
+        let deltaText = text;
+        if (tracker && tracker.lastFlushedText) {
+          // Dacă noul text începe exact cu vechiul, ia doar partea nouă
+          const oldLen = tracker.lastFlushedText.length;
+          if (text.length > oldLen && text.startsWith(tracker.lastFlushedText)) {
+            deltaText = text.slice(oldLen).trim();
+          }
+        }
+
+        const deltaWords = countWords(deltaText);
+        // Trimite delta DOAR dacă are minim 3 cuvinte (nu propoziții fragmentare)
+        if (deltaWords >= AZURE_LIVE_TEXT_MIN_WORDS) {
+          markPartialFlushed(event.id, text);
+          queueSpeechText(event.id, deltaText, effectiveSourceLang, 'azure_sdk');
+        }
+      }
+    }
   };
   recognizer.recognized = (_, result) => {
     if (result?.result?.reason !== sdk.ResultReason.RecognizedSpeech) return;
     const text = sanitizeTranscriptText(result?.result?.text || '');
-    if (text) queueSpeechText(event.id, text, effectiveSourceLang, 'azure_sdk');
+    if (!text) return;
+
+    // BIBLE MODE: skip translation (recognition continues for transcript verification)
+    const currentEventBible = db.events[event.id];
+    if (currentEventBible?.bibleMode) {
+      logger.info('[BIBLE MODE] Skipping translation:', text.slice(0, 60));
+      return;
+    }
+
+    // TASK 37: Verific dacă acest text final a fost deja flush-uit prin partial
+    if (isPartialFlushDuplicate(event.id, text)) {
+      // Dar poate textul final are info ÎN PLUS față de partial
+      const tracker = partialFlushTracker.get(event.id);
+      if (tracker && text.length > tracker.lastFlushedText.length && text.startsWith(tracker.lastFlushedText)) {
+        const deltaText = text.slice(tracker.lastFlushedText.length).trim();
+        const deltaWords = countWords(deltaText);
+        if (deltaWords >= AZURE_LIVE_TEXT_MIN_WORDS) {
+          markPartialFlushed(event.id, text);
+          queueSpeechText(event.id, deltaText, effectiveSourceLang, 'azure_sdk');
+        }
+      }
+      // Altfel, e duplicat complet - skip
+      return;
+    }
+
+    // Text nou (nu duplicat) - flush normal
+    markPartialFlushed(event.id, text);
+    queueSpeechText(event.id, text, effectiveSourceLang, 'azure_sdk');
   };
   recognizer.canceled = (_, result) => {
     const details = String(result?.errorDetails || result?.reason || 'unknown');
@@ -3733,6 +4265,27 @@ function generateOperatorAccessCode() {
 }
 
 const accessRequestRateLimits = new Map();
+
+// V11.4: Periodic GC for rate-limit Maps (V10 audit MEDIU)
+// Shapes confirmed: both Maps store { windowStart: epoch_ms, count: number } keyed by IP.
+// TTL 1h is generous over the 10-min rate-limit window — keeps recent entries for
+// observability, drops fully-expired ones to bound memory. Sweep runs every 10 min;
+// first sweep happens after the first interval (no boot sweep), so Maps populate first.
+installRateLimitGC([
+  {
+    name: 'accessRequestRateLimits',
+    map: accessRequestRateLimits,
+    ttlMs: 60 * 60 * 1000,
+    getLastSeenAt: (v) => v.windowStart || 0,
+  },
+  {
+    name: 'operatorLoginAttempts',
+    map: operatorLoginAttempts,
+    ttlMs: 60 * 60 * 1000,
+    getLastSeenAt: (v) => v.windowStart || 0,
+  },
+], { intervalMs: 10 * 60 * 1000, logger });
+
 function checkAccessRequestRateLimit(ip) {
   const now = Date.now();
   const entry = accessRequestRateLimits.get(ip);
@@ -4176,6 +4729,139 @@ app.post('/api/admin/push-subscribe', (req, res) => {
   res.json({ ok: true });
 });
 
+// BUGFIX V5 Layer 4: scan + auto-clean translations the OpenAI model wrote in the wrong language.
+// Auth: header `x-main-operator-code` matching globalAccess.mainOperatorCode (same surface as
+// operator login). Backs up sessions.json + translation-cache.json BEFORE mutations to
+// /var/data/audit-backup-<timestamp>.json. Auto-clean is enabled per task spec; only removes
+// high-confidence mismatches (detector returns 'high' AND detected !== expected).
+// Returns a JSON report with sample mismatches (capped at 20 per category) for inspection.
+app.post('/admin/audit-translations', (req, res) => {
+  const supplied = String(req.headers['x-main-operator-code'] || '').trim();
+  const orgAccess = getOrganizationAccess(DEFAULT_ORG_ID);
+  const expected = String(orgAccess?.mainOperatorCode || '').trim();
+  if (!expected || supplied !== expected) {
+    return res.status(401).json({ ok: false, error: 'Invalid x-main-operator-code header.' });
+  }
+
+  const tsLabel = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupPath = path.join(DATA_DIR, `audit-backup-${tsLabel}.json`);
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    const backup = {
+      ts: new Date().toISOString(),
+      sessions: fs.existsSync(DB_FILE) ? JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) : null,
+      translationCache: Array.from(translationCache.entries())
+    };
+    fs.writeFileSync(backupPath, JSON.stringify(backup), 'utf8');
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: `Backup failed: ${err?.message || err}`, backupPath });
+  }
+
+  // 1. Global translation cache: key format `srcLang::tgtLang::speed::glossarySig::context::sourceText`
+  const cacheReport = { scanned: 0, suspects: 0, removed: 0, mismatches: [] };
+  for (const [key, value] of Array.from(translationCache.entries())) {
+    cacheReport.scanned += 1;
+    const parts = String(key).split('::');
+    const tgtLang = parts[1];
+    if (!tgtLang || !LANGUAGES[tgtLang]) continue;
+    const detected = detectLanguage(value);
+    if (detected.lang !== 'unknown' && detected.lang !== tgtLang && detected.confidence === 'high') {
+      cacheReport.suspects += 1;
+      if (cacheReport.mismatches.length < 20) {
+        cacheReport.mismatches.push({
+          expectedLang: tgtLang,
+          detectedLang: detected.lang,
+          keyPreview: key.slice(0, 120),
+          valuePreview: String(value).slice(0, 120)
+        });
+      }
+      translationCache.delete(key);
+      cacheReport.removed += 1;
+    }
+  }
+  if (cacheReport.removed > 0) {
+    translationCacheDirty = true;
+    flushPersistentTranslationCache();
+  }
+
+  // 2. Per-song library translationsByHash across all orgs
+  const libReport = { scanned: 0, suspects: 0, removed: 0, mismatches: [] };
+  for (const orgId of Object.keys(db.organizations || {})) {
+    const org = db.organizations[orgId];
+    const library = Array.isArray(org?.globalSongLibrary) ? org.globalSongLibrary : [];
+    for (const song of library) {
+      const hashCache = song?.translationsByHash;
+      if (!hashCache || typeof hashCache !== 'object') continue;
+      for (const blockHash of Object.keys(hashCache)) {
+        const blockTranslations = hashCache[blockHash];
+        if (!blockTranslations || typeof blockTranslations !== 'object') continue;
+        for (const tgtLang of Object.keys(blockTranslations)) {
+          if (!LANGUAGES[tgtLang]) continue;
+          const value = blockTranslations[tgtLang];
+          if (typeof value !== 'string' || !value) continue;
+          libReport.scanned += 1;
+          const detected = detectLanguage(value);
+          if (detected.lang !== 'unknown' && detected.lang !== tgtLang && detected.confidence === 'high') {
+            libReport.suspects += 1;
+            if (libReport.mismatches.length < 20) {
+              libReport.mismatches.push({
+                orgId,
+                songTitle: song?.title || '(untitled)',
+                expectedLang: tgtLang,
+                detectedLang: detected.lang,
+                valuePreview: String(value).slice(0, 120)
+              });
+            }
+            delete blockTranslations[tgtLang];
+            libReport.removed += 1;
+          }
+        }
+      }
+    }
+  }
+  if (libReport.removed > 0) {
+    saveDb();
+  }
+
+  logger.info(`audit-translations: cache scanned=${cacheReport.scanned} removed=${cacheReport.removed} | library scanned=${libReport.scanned} removed=${libReport.removed} | backup=${backupPath}`);
+
+  res.json({
+    ok: true,
+    backupPath,
+    cacheGlobal: {
+      scanned: cacheReport.scanned,
+      suspects: cacheReport.suspects,
+      removed: cacheReport.removed,
+      sample: cacheReport.mismatches
+    },
+    libraryByHash: {
+      scanned: libReport.scanned,
+      suspects: libReport.suspects,
+      removed: libReport.removed,
+      sample: libReport.mismatches
+    }
+  });
+});
+
+// BUGFIX V7: manual re-trigger of normalize migration. Already runs at startup; this is for
+// re-running after content imports or for verifying. Same auth pattern as audit-translations.
+// Idempotent — items already marked _normalizedAt are skipped.
+app.post('/admin/normalize-content', (req, res) => {
+  const supplied = String(req.headers['x-main-operator-code'] || '').trim();
+  const orgAccess = getOrganizationAccess(DEFAULT_ORG_ID);
+  const expected = String(orgAccess?.mainOperatorCode || '').trim();
+  if (!expected || supplied !== expected) {
+    return res.status(401).json({ ok: false, error: 'Invalid x-main-operator-code header.' });
+  }
+  try {
+    const stats = migrateNormalizeContent({ skipBackup: false });
+    res.json({ ok: true, ...stats });
+  } catch (err) {
+    logger.error('normalize-content endpoint error:', err);
+    res.status(500).json({ ok: false, error: err?.message || String(err) });
+  }
+});
+
 const OPERATOR_SESSION_COOKIE = 'sv_operator_session';
 const OPERATOR_SESSION_MAX_AGE_MS = Math.max(1, Number(process.env.OPERATOR_SESSION_MAX_AGE_HOURS || 4) || 4) * 60 * 60 * 1000;
 
@@ -4347,6 +5033,7 @@ registerOrgRoutes(app, {
   COMMERCIAL_MODE,
   DEFAULT_ORG_ID,
   LANGUAGE_NAMES_RO,
+  LANGUAGE_ENDONYMS,
   OPENAI_API_KEY,
   OPENAI_MODEL,
   OPENAI_TRANSCRIBE_MODEL,
@@ -4379,6 +5066,7 @@ registerEventRoutes(app, {
   DEFAULT_ORG_ID,
   LANGUAGES,
   LANGUAGE_NAMES_RO,
+  LANGUAGE_ENDONYMS,
   TRANSCRIBE_RATE_LIMIT_MAX,
   TRANSCRIBE_RATE_LIMIT_WINDOW_MS,
   appendAudioArchiveChunk,
@@ -4386,6 +5074,7 @@ registerEventRoutes(app, {
   applyDisplaySnapshot,
   applySourceCorrections,
   buildBaseUrl,
+  buildBlockLabels,
   buildDisplayPayload,
   buildPublicOrganization,
   buildSongTranslations,
@@ -4402,6 +5091,7 @@ registerEventRoutes(app, {
   ensureEventAccessLinks,
   ensureEventUiState,
   getActiveEventIdForOrg,
+  getDefaultOrganization,
   getDisplayLanguageChoices,
   getEventOrgId,
   getOrganizationEvents,
@@ -4442,6 +5132,7 @@ registerEventRoutes(app, {
   requireEventRole,
   requireGlobalLibraryAdmin,
   resolveEventAccessFromCode,
+  normalizeTextInput,
   sanitizeStructuredText,
   sanitizeTranscriptText,
   saveDb,
@@ -4459,6 +5150,7 @@ registerEventRoutes(app, {
 
 registerSocketHandlers(io, {
   LANGUAGE_NAMES_RO,
+  LANGUAGE_ENDONYMS,
   azureSpeechSessions,
   buildDisplayPayload,
   buildPublicOrganization,

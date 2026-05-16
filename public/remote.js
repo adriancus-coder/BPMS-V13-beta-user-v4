@@ -138,7 +138,8 @@ function getRemoteMainPreviewTextForLanguage(displayLang) {
     const songState = event.songState || {};
     const sourceLang = songState.sourceLang || event.sourceLang || 'ro';
     if (displayLang === sourceLang) return songState.activeBlock || 'Waiting for song…';
-    return songState.translations?.[displayLang] || songState.activeBlock || 'Waiting for song translation…';
+    // BUGFIX V3: nu mai cădem pe activeBlock (text sursă) pentru limbi non-source
+    return songState.translations?.[displayLang] || 'Waiting for song translation…';
   }
   if (displayState.mode === 'manual') {
     const sourceLang = displayState.manualSourceLang || event.sourceLang || 'ro';
@@ -169,7 +170,8 @@ function getRemoteParticipantPreviewText() {
     const songState = event.songState || {};
     const sourceLang = songState.sourceLang || event.sourceLang || 'ro';
     if (participantLang === sourceLang) return songState.activeBlock || 'Waiting for song…';
-    return songState.translations?.[participantLang] || songState.activeBlock || 'Waiting for song translation…';
+    // BUGFIX V3: nu mai cădem pe activeBlock (text sursă) pentru limbi non-source
+    return songState.translations?.[participantLang] || 'Waiting for song translation…';
   }
   const latestEntry = getLatestRemoteEntry();
   return latestEntry?.translations?.[participantLang] || latestEntry?.original || 'Waiting for translation…';

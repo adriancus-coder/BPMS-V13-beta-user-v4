@@ -14,6 +14,7 @@ function registerEventRoutes(app, ctx) {
     DEFAULT_ORG_ID,
     LANGUAGES,
     LANGUAGE_NAMES_RO,
+    LANGUAGE_ENDONYMS,
     TRANSCRIBE_RATE_LIMIT_MAX,
     TRANSCRIBE_RATE_LIMIT_WINDOW_MS,
     appendAudioArchiveChunk,
@@ -21,6 +22,7 @@ function registerEventRoutes(app, ctx) {
     applyDisplaySnapshot,
     applySourceCorrections,
     buildBaseUrl,
+    buildBlockLabels,
     buildDisplayPayload,
     buildPublicOrganization,
     buildSongTranslations,
@@ -39,6 +41,7 @@ function registerEventRoutes(app, ctx) {
     getActiveEventIdForOrg,
     getDisplayLanguageChoices,
     getEventOrgId,
+    getDefaultOrganization,
     getOrganizationEvents,
     getOrganizationForEvent,
     getOrganizationMemory,
@@ -76,6 +79,7 @@ function registerEventRoutes(app, ctx) {
     requireEventRole,
     requireGlobalLibraryAdmin,
     resolveEventAccessFromCode,
+    normalizeTextInput,
     sanitizeStructuredText,
     sanitizeTranscriptText,
     saveDb,
@@ -147,7 +151,7 @@ function registerEventRoutes(app, ctx) {
     if (!event) return res.status(404).json({ ok: false, error: 'Nu există eveniment activ.' });
     ensureEventAccessLinks(event, buildBaseUrl(req));
     saveDb();
-    res.json({ ok: true, event: normalizeEvent(event), languageNames: LANGUAGE_NAMES_RO, organization: buildPublicOrganization(getOrganizationForEvent(event)) });
+    res.json({ ok: true, event: normalizeEvent(event), languageNames: LANGUAGE_NAMES_RO, languageEndonyms: LANGUAGE_ENDONYMS, organization: buildPublicOrganization(getOrganizationForEvent(event)) });
   });
 
   app.get('/api/events/upcoming', (req, res) => {
@@ -411,7 +415,7 @@ function registerEventRoutes(app, ctx) {
         isActive: activeEventId === event.id,
         testMode: !!event.testMode
       }));
-    res.json({ ok: true, events, activeEventId: activeEventId || null, languageNames: LANGUAGE_NAMES_RO, organization: buildPublicOrganization() });
+    res.json({ ok: true, events, activeEventId: activeEventId || null, languageNames: LANGUAGE_NAMES_RO, languageEndonyms: LANGUAGE_ENDONYMS, organization: buildPublicOrganization() });
   });
 
   app.get('/api/events', (req, res) => {
@@ -420,7 +424,7 @@ function registerEventRoutes(app, ctx) {
     const events = getOrganizationEvents(DEFAULT_ORG_ID)
       .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
       .map(summarizeEvent);
-    res.json({ ok: true, events, activeEventId: activeEventId || null, languageNames: LANGUAGE_NAMES_RO, organization: buildPublicOrganization() });
+    res.json({ ok: true, events, activeEventId: activeEventId || null, languageNames: LANGUAGE_NAMES_RO, languageEndonyms: LANGUAGE_ENDONYMS, organization: buildPublicOrganization() });
   });
 
   app.get('/api/events/:id', (req, res) => {
@@ -431,7 +435,7 @@ function registerEventRoutes(app, ctx) {
     const access = hasValidAdminSession(req)
       ? { role: 'admin', permissions: ['main_screen', 'song'], operator: null }
       : resolveEventAccessFromCode(event, getSuppliedEventCode(req));
-    res.json({ ok: true, event: normalizeEvent(event, { includeSecrets: access.role === 'admin' }), languageNames: LANGUAGE_NAMES_RO, organization: buildPublicOrganization(getOrganizationForEvent(event)) });
+    res.json({ ok: true, event: normalizeEvent(event, { includeSecrets: access.role === 'admin' }), languageNames: LANGUAGE_NAMES_RO, languageEndonyms: LANGUAGE_ENDONYMS, organization: buildPublicOrganization(getOrganizationForEvent(event)) });
   });
 
   app.post('/api/events/:id/remote-operators', (req, res) => {
@@ -548,9 +552,21 @@ function registerEventRoutes(app, ctx) {
     const event = db.events[req.params.id];
     if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
     if (!requireEventAdmin(req, res, event)) return;
-    setActiveEventIdForOrg(getEventOrgId(event), event.id);
+    const orgId = getEventOrgId(event);
+    // FEATURE 2: Default Black Screen pe pornire serviciu.
+    // Doar dacă evenimentul NU era deja active (real "start service", nu re-activare în timpul serviciului).
+    const wasAlreadyActive = getActiveEventIdForOrg(orgId) === event.id;
+    setActiveEventIdForOrg(orgId, event.id);
+    if (!wasAlreadyActive) {
+      ensureEventUiState(event);
+      rememberDisplayState(event);
+      event.displayState.blackScreen = true;
+      event.displayState.sceneLabel = '';
+      event.displayState.updatedAt = new Date().toISOString();
+      io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
+    }
     if (typeof recordAudit === 'function') {
-      recordAudit(getEventOrgId(event), 'event_set_live', { eventId: event.id, name: event.name });
+      recordAudit(orgId, 'event_set_live', { eventId: event.id, name: event.name });
     }
     saveDb();
     io.emit('active_event_changed', { eventId: event.id });
@@ -672,8 +688,10 @@ function registerEventRoutes(app, ctx) {
     const event = db.events[req.params.id];
     if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
     if (!requireEventAdmin(req, res, event)) return;
-    const source = String(req.body.source || '').trim();
-    const target = String(req.body.target || '').trim();
+    // BUGFIX V7: glossary entries don't go through sanitizeStructuredText, so normalize directly.
+    // Otherwise a glossary key with mixed sedilla/comma diacritics wouldn't match normalized song text.
+    const source = normalizeTextInput(String(req.body.source || '')).trim();
+    const target = normalizeTextInput(String(req.body.target || '')).trim();
     const permanent = !!req.body.permanent;
     const lang = String(req.body.lang || '').trim();
     if (!source || !target) return res.status(400).json({ ok: false, error: 'Date lipsă.' });
@@ -772,11 +790,38 @@ function registerEventRoutes(app, ctx) {
       speechBuffers.delete(event.id);
       event.lastTranscriptNorm = '';
       setTranscriptionPaused(event, true, { save: false, emit: false, markOnAir: false });
+      // V11.9: flip displayState.mode = 'song' BEFORE rememberDisplayState (and the
+      // explicit ensureEventUiState below). Otherwise, when Send Song follows a Clear
+      // (which leaves displayState.mode='auto' but displayState.language='ro' from the
+      // prior song source), the inner ensureEventUiState in rememberDisplayState evicts
+      // dual-mode pairs: getDisplayLanguageChoices() with mode='auto' returns just
+      // event.targetLangs (e.g. ['no','en']), so primary 'ro' → 'no' (first target),
+      // then secondary 'no' → '' (because secondary === primary). V11.8 then puts
+      // 'ro' back on primary but secondary is already gone → single RO (the bug).
+      // Setting mode='song' first means getDisplayLanguageChoices() includes
+      // songState.sourceLang, preserving dual RO+NO across Clear → Send Song RO.
+      if (event.displayState && typeof event.displayState === 'object') {
+        event.displayState.mode = 'song';
+      }
       rememberDisplayState(event);
+      event.displayState.mode = 'song'; // re-assert: handles brand-new events where rememberDisplayState's ensureEventUiState just created default displayState
       ensureEventUiState(event);
-      event.displayState.mode = 'song';
       event.displayState.blackScreen = false;
       event.displayState.sceneLabel = '';
+      // V11.8: switch displayState.language to song's source language so Main Screen
+      // auto-shows the original verse text on Send (without admin manually switching
+      // the display language). Dual-mode no-op: if sourceLang is already visible on
+      // primary OR secondary card, preserve the operator's dual-mode choice. Update
+      // happens BEFORE buildDisplayPayload below so the emit carries the new language.
+      // Participant phone selection (state.currentLanguage in participant.js) is in a
+      // separate state slot and is NOT affected by display_mode_changed payload (verified).
+      {
+        const currentPrimary = event.displayState.language || '';
+        const currentSecondary = event.displayState.secondaryLanguage || '';
+        if (currentPrimary !== songSourceLang && currentSecondary !== songSourceLang) {
+          event.displayState.language = songSourceLang;
+        }
+      }
       event.displayState.updatedAt = new Date().toISOString();
       recordScreenAction(event, 'song');
       io.to(`event:${event.id}`).emit('mode_changed', { mode: 'song' });
@@ -816,7 +861,25 @@ function registerEventRoutes(app, ctx) {
     const index = Number(req.params.index);
     if (!setSongIndex(event, index)) return res.status(400).json({ ok: false, error: 'Index invalid.' });
     recordScreenAction(event, 'song');
+    // V11.8: same dual-mode no-op as /song/load — switch displayState.language to verse's
+    // source on jump-to-verse. /song/show emits ONLY song_state today, so we also emit
+    // display_mode_changed (conditionally, only if language actually changed) so Main Screen
+    // picks up the new language. Flag avoids redundant emits + Main Screen re-render on no-op.
+    let displayLanguageChanged = false;
+    const verseSourceLang = event.songState?.sourceLang || event.sourceLang || 'ro';
+    if (event.displayState) {
+      const currentPrimary = event.displayState.language || '';
+      const currentSecondary = event.displayState.secondaryLanguage || '';
+      if (currentPrimary !== verseSourceLang && currentSecondary !== verseSourceLang) {
+        event.displayState.language = verseSourceLang;
+        event.displayState.updatedAt = new Date().toISOString();
+        displayLanguageChanged = true;
+      }
+    }
     io.to(`event:${event.id}`).emit('song_state', event.songState);
+    if (displayLanguageChanged) {
+      io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
+    }
     res.json({ ok: true, songState: event.songState });
     saveDb();
     emitUsageStats(event.id);
@@ -860,6 +923,86 @@ function registerEventRoutes(app, ctx) {
     io.to(`event:${event.id}`).emit('song_state', event.songState);
     res.json({ ok: true, songState: event.songState });
     saveDb();
+  });
+
+  // FEATURE 3+4: Edit the currently active song block, with optional library update.
+  // Cache (translationsByHash) is content-addressed so new text auto-misses old cache;
+  // when updateLibrary is true we also persist the new block translations into the library cache.
+  app.post('/api/events/:id/song/edit-active-block', async (req, res) => {
+    const event = db.events[req.params.id];
+    if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
+    if (!requireEventRole(req, res, event, ['admin', 'screen'])) return;
+    if (!requireEventPermission(req, res, 'song')) return;
+
+    const newText = sanitizeStructuredText(req.body.newText || '').trim();
+    if (!newText) return res.status(400).json({ ok: false, error: 'newText required' });
+    const updateLibrary = !!req.body.updateLibrary;
+
+    const songState = event.songState;
+    if (!songState || !Array.isArray(songState.blocks) || !songState.blocks.length) {
+      return res.status(400).json({ ok: false, error: 'No active song to edit.' });
+    }
+    const currentIndex = Number.isInteger(songState.currentIndex) ? songState.currentIndex : -1;
+    if (currentIndex < 0 || currentIndex >= songState.blocks.length) {
+      return res.status(400).json({ ok: false, error: 'No active block to edit.' });
+    }
+
+    songState.blocks[currentIndex] = newText;
+    songState.activeBlock = newText;
+    const songSourceLang = String(songState.sourceLang || event.sourceLang || 'ro').trim() || 'ro';
+
+    // FEATURE 4: invalidate translations cache pentru blocul editat.
+    // Forțăm re-traducere doar a blocului curent (nu pierdem traducerile pentru celelalte strofe).
+    if (!Array.isArray(songState.allTranslations)) {
+      songState.allTranslations = songState.blocks.map(() => ({}));
+    }
+    songState.allTranslations[currentIndex] = {};
+    songState.translations = {};
+
+    let updatedLibrary = null;
+    try {
+      // Caut entry-ul în library pentru a re-folosi cache-ul (titlu normalizat).
+      const orgId = getEventOrgId(event);
+      const orgLibrary = getOrganizationSongLibrary(orgId) || [];
+      const normalizedTitle = normalizeLibraryTitle(songState.title || '');
+      const libIdx = normalizedTitle
+        ? orgLibrary.findIndex((item) => item && normalizeLibraryTitle(item.title) === normalizedTitle)
+        : -1;
+      const cachedSong = libIdx >= 0 ? orgLibrary[libIdx] : null;
+      const songCache = (cachedSong && typeof cachedSong.translationsByHash === 'object' && cachedSong.translationsByHash)
+                        ? cachedSong.translationsByHash : {};
+
+      const result = await buildSongTranslations(event, [newText], songSourceLang, songCache);
+      const blockTranslations = result.allTranslations[0] || {};
+      songState.allTranslations[currentIndex] = blockTranslations;
+      songState.translations = blockTranslations;
+      songState.updatedAt = new Date().toISOString();
+
+      if (updateLibrary && libIdx >= 0) {
+        // Reconstruim textul complet din blocks + persistăm noile traduceri în cache-ul library-ului.
+        orgLibrary[libIdx].text = songState.blocks.join('\n\n');
+        if (Array.isArray(songState.blockLabels)) {
+          orgLibrary[libIdx].labels = songState.blockLabels.slice();
+        }
+        const mergedCache = { ...songCache, ...result.cacheUpdates };
+        orgLibrary[libIdx].translationsByHash = mergedCache;
+        orgLibrary[libIdx].updatedAt = new Date().toISOString();
+        updatedLibrary = orgLibrary;
+      }
+
+      saveDb();
+      io.to(`event:${event.id}`).emit('song_state', event.songState);
+
+      res.json({
+        ok: true,
+        event: normalizeEventForAccess(req, event),
+        songState: event.songState,
+        globalSongLibrary: updatedLibrary
+      });
+    } catch (err) {
+      logger.error('song edit-active-block error:', err);
+      res.status(500).json({ ok: false, error: 'Could not save edited verse.' });
+    }
   });
 
   app.post('/api/events/:id/song/clear', (req, res) => {
@@ -1120,6 +1263,54 @@ function registerEventRoutes(app, ctx) {
     saveDb();
     io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
     res.json({ ok: true, displayState: event.displayState });
+  });
+
+  app.post('/api/events/:id/bible-mode', (req, res) => {
+    const event = db.events[req.params.id];
+    if (!event) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
+    if (!requireEventRole(req, res, event, ['admin'])) return;
+    if (!requireEventPermission(req, res, 'main_screen')) return;
+    ensureEventUiState(event);
+
+    const enabled = !!req.body.enabled;
+    const wasEnabled = !!event.bibleMode;
+
+    event.bibleMode = enabled;
+
+    if (enabled && !wasEnabled) {
+      // Activating: snapshot current display, force black screen
+      rememberDisplayState(event);
+      event.displayState.blackScreen = true;
+      event.displayState.updatedAt = new Date().toISOString();
+    } else if (!enabled && wasEnabled) {
+      // Deactivating: restore previous display state if any
+      if (event.displayStatePrevious) {
+        const currentSnapshot = cloneDisplaySnapshot(event);
+        applyDisplaySnapshot(event, event.displayStatePrevious);
+        event.displayStatePrevious = currentSnapshot;
+      } else {
+        event.displayState.blackScreen = false;
+        event.displayState.updatedAt = new Date().toISOString();
+      }
+    }
+
+    recordScreenAction(event, 'display');
+    saveDb();
+
+    io.to(`event:${event.id}`).emit('bible_mode_changed', {
+      enabled: event.bibleMode,
+      displayState: event.displayState
+    });
+    io.to(`event:${event.id}`).emit('display_mode_changed', buildDisplayPayload(event));
+    emitUsageStats(event.id);
+
+    res.json({
+      ok: true,
+      bibleMode: event.bibleMode,
+      displayState: event.displayState,
+      previousState: event.displayStatePrevious || null,
+      event: normalizeEventForAccess(req, event)
+    });
   });
 
   app.post('/api/events/:id/display/restore-last', (req, res) => {

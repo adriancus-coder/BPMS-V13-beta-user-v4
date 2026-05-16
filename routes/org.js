@@ -55,7 +55,9 @@ function registerOrgRoutes(app, ctx) {
   });
 
   app.get('/api/languages', (req, res) => {
-    res.json({ ok: true, languages: ctx.LANGUAGE_NAMES_RO });
+    // V11.5: emit endonyms alongside RO names. Clients (translate.js, participant.js)
+    // prefer endonyms for end-user UI; admin.html still uses `languages` (RO names).
+    res.json({ ok: true, languages: ctx.LANGUAGE_NAMES_RO, languageEndonyms: ctx.LANGUAGE_ENDONYMS });
   });
 
   app.get('/api/organization', (req, res) => {

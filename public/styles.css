@@ -865,6 +865,44 @@ progress::-moz-progress-bar {
   border-color: transparent;
 }
 
+/* V9.1: scoped red override for Library Delete buttons. The app's default .btn-danger uses
+   the orange-leaning --danger #d95a16 (consistent with End service / Panic / etc.). For the
+   2 Library card Delete buttons (Pinned + Song Library) we want a stronger red signal because
+   they delete user content permanently. Other .btn-danger usages stay orange (unchanged). */
+.btn-danger[data-global-song-action="delete"],
+.btn-danger[data-manual-library-action="delete"] {
+  background:
+    radial-gradient(circle at top center, rgba(255, 220, 220, 0.18), transparent 58%),
+    linear-gradient(135deg, #ef4444, #b91c1c);
+  color: #fff;
+}
+
+.btn-danger[data-global-song-action="delete"]:hover,
+.btn-danger[data-manual-library-action="delete"]:hover,
+.btn-danger[data-global-song-action="delete"]:focus-visible,
+.btn-danger[data-manual-library-action="delete"]:focus-visible {
+  background:
+    radial-gradient(circle at top center, rgba(255, 220, 220, 0.24), transparent 58%),
+    linear-gradient(135deg, #dc2626, #991b1b);
+}
+
+/* V10.1 fix U1: .btn-secondary — moderate-intensity action button (between .btn-primary and .btn-dark).
+   Used by Bible Mode toggle buttons in admin.html (hero topbar + Live Control tab). Before this fix
+   the class was undefined → fallback to bare .btn → barely visible on dark glass-panel background. */
+.btn-secondary {
+  background:
+    linear-gradient(135deg, rgba(212, 165, 116, 0.22), rgba(212, 165, 116, 0.12));
+  color: #f8e9c7;
+  border-color: rgba(212, 165, 116, 0.45);
+  font-weight: 600;
+}
+
+.btn-secondary:hover {
+  background:
+    linear-gradient(135deg, rgba(212, 165, 116, 0.32), rgba(212, 165, 116, 0.18));
+  border-color: rgba(212, 165, 116, 0.65);
+}
+
 .btn:hover {
   filter: saturate(1.04);
 }
@@ -2034,7 +2072,8 @@ progress::-moz-progress-bar {
 .library-card-summary {
   list-style: none;
   cursor: pointer;
-  padding: 16px 18px;
+  /* V11.11: compact padding so more songs fit on screen (was 16px 18px). */
+  padding: 10px 14px;
 }
 
 .library-card-summary::-webkit-details-marker {
@@ -2056,8 +2095,10 @@ progress::-moz-progress-bar {
 
 .library-card-body {
   display: grid;
-  gap: 14px;
-  padding: 0 18px 18px;
+  /* V11.11: tighter spacing inside expanded card so operator sees more list rows
+   * (was gap 14px + padding 0 18px 18px). Button height preserved for touch. */
+  gap: 8px;
+  padding: 0 14px 10px;
   border-top: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.42);
 }
@@ -2071,6 +2112,104 @@ progress::-moz-progress-bar {
   gap: 10px;
   flex-wrap: wrap;
   justify-content: flex-start;
+}
+
+/* V11.12: Single-row layout for the 5 controls in an expanded song-library card
+ * ([Load][Send][Choose event select][Add][Delete]). Buttons are slightly shorter
+ * vertically for a more compact look; the select grows to fill leftover space.
+ * Below 768px, the row wraps so phones/tablets don't blow out the layout. */
+.library-card-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.library-card-actions select {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  font-size: 0.9rem;
+}
+
+.library-card-actions .btn {
+  flex: 0 0 auto;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .library-card-actions {
+    flex-wrap: wrap;
+  }
+  .library-card-actions select {
+    flex: 1 1 100%;
+  }
+}
+
+/* V11.13: split-button — "Add to event" + integrated event picker arrow.
+ * Native <select> is preserved (a11y + mobile) but visually collapsed to a
+ * thin arrow-only column joined to the Add button on its left. Uses
+ * appearance:none so we can supply our own arrow via background-image SVG;
+ * supported in Chrome/Edge/Firefox/Safari (all modern browsers used by
+ * admin/operator). */
+.library-card-actions .add-event-split {
+  display: inline-flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+}
+
+.library-card-actions .add-event-split > .add-event-btn {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: none;
+  margin-right: 0;
+}
+
+.library-card-actions .add-event-split > .add-event-select {
+  flex: 0 0 auto;
+  width: 36px;
+  min-width: 36px;
+  padding: 7px 0;
+  border: 1px solid rgba(255, 240, 214, 0.12);
+  border-left: 1px solid rgba(244, 221, 171, 0.25);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-top-right-radius: 16px;
+  border-bottom-right-radius: 16px;
+  background-color: rgba(11, 13, 18, 0.94);
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none'%3e%3cpath d='M3 5l3 3 3-3' stroke='%23F4DDAB' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 12px;
+  color: transparent;
+  text-shadow: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+}
+
+.library-card-actions .add-event-split > .add-event-select:hover {
+  filter: brightness(1.18);
+}
+
+.library-card-actions .add-event-split > .add-event-select:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(244, 221, 171, 0.35);
+}
+
+/* Native dropdown options inherit page background colours by default — force
+ * a dark/light text combo so the menu is readable on both Chrome (light) and
+ * Firefox (system). */
+.library-card-actions .add-event-split > .add-event-select option {
+  color: #111;
+  background: #fff;
 }
 
 .preset-save-wrap {
@@ -4814,6 +4953,23 @@ body.participant-preview-mode .participant-event-chooser {
   background: rgba(244, 221, 171, 0.1);
 }
 
+/* FEATURE 1: Strofe deja afișate */
+.song-section-item.already-displayed {
+  opacity: 0.5;
+  background: rgba(212, 165, 116, 0.05);
+  position: relative;
+}
+
+.song-section-item.already-displayed::before {
+  content: '✓';
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  color: rgba(212, 165, 116, 0.6);
+  font-size: 1.1em;
+  font-weight: bold;
+}
+
 .song-control-action-row {
   display: flex;
   gap: 8px;
@@ -5258,4 +5414,438 @@ body.participant-preview-mode .participant-event-chooser {
     max-width: none;
     flex: 1 1 100%;
   }
+}
+
+/* Bible Mode card (admin) */
+.bible-mode-card.bible-mode-active {
+  border: 2px solid #d4a574;
+  background: rgba(212, 165, 116, 0.08);
+}
+.bible-mode-card.bible-mode-active .label {
+  color: #d4a574;
+}
+.bible-mode-hint {
+  margin-top: 8px;
+  font-size: 0.85em;
+  color: #888;
+  line-height: 1.4;
+}
+#bibleModeBtn.bible-active {
+  background: #d4a574;
+  color: #1a1a1a;
+  font-weight: 600;
+}
+
+/* Bible Reading - V3.3 - Live Text replacement + subtle bottom bar */
+
+/* Live Text becomes Bible Reading message */
+#lastText.bible-reading-mode {
+  color: #d4a574 !important;
+  text-align: center;
+}
+
+.bible-reading-live-icon {
+  font-size: 0.85em;
+  margin-right: 8px;
+  vertical-align: baseline;
+}
+
+/* Bottom subtle instruction bar */
+.participant-bible-reading-bottom {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(20, 15, 10, 0.95);
+  border-top: 2px solid #d4a574;
+  padding: 12px 24px;
+  /* V11.2 (CodeRabbit Finding 1): was 9000, which placed this decorative bottom bar ABOVE
+     full-screen overlays like .participant-service-ended (z-index: 950) and
+     .participant-ai-notice (z-index: 1000) — the bar leaked over modals that should block it.
+     Lowered to 800 so it sits above page content but below overlay dialogs. */
+  z-index: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #e8d5b7;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
+  animation: bibleBottomSlideUp 0.3s ease-out;
+}
+
+@keyframes bibleBottomSlideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.participant-bible-reading-bottom[hidden] { display: none; }
+
+.participant-bible-reading-bottom-icon {
+  font-size: 1.3rem;
+  flex-shrink: 0;
+}
+
+/* Mobile - smaller padding, smaller text */
+@media (max-width: 480px) {
+  .participant-bible-reading-bottom {
+    padding: 10px 16px;
+    font-size: 0.85rem;
+  }
+  .participant-bible-reading-bottom-icon {
+    font-size: 1.1rem;
+  }
+}
+
+/* Hero Bible Mode button */
+.hero-bible-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.hero-quick-status {
+  font-size: 0.75rem;
+  color: #888;
+  text-align: center;
+  line-height: 1.2;
+  max-width: 140px;
+}
+
+.hero-bible-group.hero-bible-active .hero-quick-status {
+  color: #d4a574;
+  font-weight: 500;
+}
+
+#heroBibleModeBtn.bible-active {
+  background: #d4a574;
+  color: #1a1a1a;
+  font-weight: 600;
+  border-color: #d4a574;
+}
+
+#heroBibleModeBtn.bible-active:hover {
+  background: #c89560;
+}
+
+/* Mute Input control */
+.mute-input-row {
+  margin-top: 8px;
+}
+
+.mute-input-row input[type="checkbox"]:checked + span,
+.mute-input-row.muted-active label {
+  color: #d4a574;
+  font-weight: 500;
+}
+
+.mute-input-status {
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: rgba(212, 165, 116, 0.12);
+  border-left: 3px solid #d4a574;
+  color: #d4a574;
+  font-size: 0.8em;
+  border-radius: 3px;
+}
+
+.mute-input-status[hidden] {
+  display: none !important;
+}
+
+/* When muted, slider becomes visually disabled */
+.mute-input-disabled-slider {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* SMART FLUSH V3: Loading dots indicator */
+.loading-dots {
+  display: inline-flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.loading-dots span {
+  color: rgba(212, 165, 116, 0.85);
+  font-size: 1.4em;
+  line-height: 1;
+  animation: loading-dot-blink 1.4s ease-in-out infinite;
+  opacity: 0;
+}
+
+.loading-dots span:nth-child(1) { animation-delay: 0s; }
+.loading-dots span:nth-child(2) { animation-delay: 0.4s; }
+.loading-dots span:nth-child(3) { animation-delay: 0.8s; }
+
+@keyframes loading-dot-blink {
+  0%, 80%, 100% { opacity: 0; }
+  40%           { opacity: 1; }
+}
+
+/* Live Text container styling când e loading - centrare orizontală */
+#lastText.loading-dots-active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 80px;
+}
+
+/* FEATURE 3: Edit Live Verse Modal */
+.song-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.song-edit-verse-btn {
+  padding: 4px 12px;
+  font-size: 0.85rem;
+  min-height: 32px;
+}
+
+.edit-verse-modal[hidden] { display: none; }
+
+.edit-verse-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.edit-verse-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  cursor: pointer;
+}
+
+.edit-verse-card {
+  position: relative;
+  background: linear-gradient(180deg, rgba(18, 21, 27, 0.98), rgba(11, 13, 18, 0.98));
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 24px;
+  width: 92%;
+  max-width: 640px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+  animation: qrModalEnter 240ms ease both;
+}
+
+.edit-verse-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.edit-verse-head h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  color: var(--text);
+}
+
+.edit-verse-close {
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 1.2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 180ms ease;
+}
+
+.edit-verse-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.edit-verse-body textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.45;
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  resize: vertical;
+  min-height: 180px;
+}
+
+.edit-verse-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+/* V11.10: Global :active feedback for buttons — instant visual cue that click was registered.
+ * Applies to all <button>, .btn, and admin-action elements across admin + Main Screen +
+ * Song + Bible controls. Pure CSS, no JS. Triggers while mouse/touch is held down (~100ms).
+ */
+button:active,
+.btn:active,
+[data-action]:active,
+[role="button"]:active {
+  transform: scale(0.96);
+  filter: brightness(0.85);
+  transition: transform 60ms ease-out, filter 60ms ease-out;
+}
+
+/* Respect disabled state — no feedback on buttons that can't be clicked. */
+button:disabled:active,
+.btn:disabled:active,
+button[disabled]:active {
+  transform: none;
+  filter: none;
+}
+
+/* Reduced motion — users with vestibular preferences see brightness only, no scale. */
+@media (prefers-reduced-motion: reduce) {
+  button:active,
+  .btn:active,
+  [data-action]:active,
+  [role="button"]:active {
+    transform: none;
+  }
+}
+
+/* V11.16: Compact Main Screen tab — fit mode controls above fold on 1920x1200@150%.
+   All selectors scoped to #tab-mainscreen so other tabs are untouched. The
+   .main-screen-settings-card is relocated into #tab-mainscreen at runtime. */
+
+/* Tighter outer panel padding + gap */
+#tab-mainscreen .section-stack {
+  padding: 8px 12px;
+  gap: 6px;
+}
+
+/* Smaller section headers (Main Screen / Usage) */
+#tab-mainscreen .section-head h2 {
+  font-size: 1.15rem;
+}
+
+/* Tighter subsection header spacing */
+#tab-mainscreen .admin-subsection-head {
+  margin-top: 4px;
+}
+
+/* Hide redundant descriptions: panel intro + subsection subtitles */
+#tab-mainscreen .section-stack > .muted,
+#tab-mainscreen .admin-subsection-head .muted {
+  display: none;
+}
+
+/* Tighter info-card padding inside the settings card */
+#tab-mainscreen .info-card {
+  padding: 9px;
+  gap: 6px;
+}
+
+#tab-mainscreen .main-screen-settings-card {
+  margin-bottom: 0;
+}
+
+/* Screen Status card — tighter gap, data row, banner */
+#tab-mainscreen .main-screen-audit-card {
+  gap: 8px;
+}
+
+#tab-mainscreen .display-audit-grid {
+  gap: 6px 12px;
+}
+
+#tab-mainscreen .display-audit-preview {
+  padding: 6px 12px;
+}
+
+/* V11.17: Target Languages picker — chips + dropdown adder */
+.target-lang-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.target-lang-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 32px;
+}
+
+.target-lang-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
+  font-size: 0.9rem;
+  color: var(--text-primary, #ddd);
+}
+
+.target-lang-chip-label {
+  white-space: nowrap;
+}
+
+.target-lang-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary, #ddd);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  transition: background 60ms ease-out;
+}
+
+.target-lang-chip-remove:hover {
+  background: rgba(244, 67, 54, 0.4);
+}
+
+.target-lang-add {
+  max-width: 280px;
+}
+
+/* V11.17: Event Library — collapsible card summary inline layout */
+.event-summary-title {
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.event-summary-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #aaa);
+}
+
+.event-summary-date {
+  margin-left: 8px;
 }

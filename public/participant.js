@@ -1,12 +1,64 @@
 const socket = io();
 const $ = (id) => document.getElementById(id);
 let availableLanguages = {};
+// V11.5: endonyms catalog (each language's name in its own language) — preferred over
+// availableLanguages on end-user-facing participant UI. Falls back if server didn't send.
+let availableEndonyms = {};
 let participantWakeLock = null;
 const participantParams = new URLSearchParams(window.location.search);
 const LIVE_ENTRY_MIN_DISPLAY_MS = 2200;
 const LIVE_ENTRY_MAX_DISPLAY_MS = 9000;
 const LIVE_ENTRY_MAX_QUEUE = 3;
 const LIVE_ENTRY_CATCHUP_MIN_MS = 1100;
+
+// SMART FLUSH V1.1: Display buffer pentru chunk merging + delay
+const displayBuffer = {
+  pendingText: null,         // text în așteptare de afișare
+  lastDisplayTime: 0,        // timestamp ultima afișare
+  pendingTimer: null,        // timer pentru afișare amânată
+  MERGE_WINDOW_MS: 2000,     // chunks în 2 sec se combină
+  MIN_DISPLAY_MS: 3000       // 3 sec minim între afișări
+};
+
+// BUGFIX V1 - FIX 2: Auto-expire live text dacă nu vine update nou
+const liveTextExpire = {
+  timer: null,
+  EXPIRE_MS: 6000  // 6 secunde
+};
+
+function refreshLiveTextExpireTimer() {
+  // Cancel timer existent
+  if (liveTextExpire.timer) {
+    clearTimeout(liveTextExpire.timer);
+    liveTextExpire.timer = null;
+  }
+
+  // Programează expire în 6 sec
+  liveTextExpire.timer = setTimeout(() => {
+    // Au trecut 6 sec fără update - resetează la loading dots
+    // DOAR dacă suntem în mod Live (nu song, nu service ended, etc.)
+    const isLiveMode = state.currentMode === 'live' || state.currentMode === 'auto' || !state.currentMode;
+    const hasActiveLiveEntry = state.visibleLiveEntry && !state.serviceEndedAcknowledged;
+
+    if (isLiveMode && hasActiveLiveEntry) {
+      // Curăță ultima traducere și arată loading dots
+      state.visibleLiveEntry = null;
+      state.lastLiveEntryId = null;
+      if (typeof showLoadingDots === 'function') {
+        showLoadingDots();
+      }
+    }
+
+    liveTextExpire.timer = null;
+  }, liveTextExpire.EXPIRE_MS);
+}
+
+function cancelLiveTextExpireTimer() {
+  if (liveTextExpire.timer) {
+    clearTimeout(liveTextExpire.timer);
+    liveTextExpire.timer = null;
+  }
+}
 
 const voiceLocales = {
   ro: 'ro-RO',
@@ -28,7 +80,8 @@ const voiceLocales = {
 };
 
 function langLabel(code) {
-  return availableLanguages[code] || code.toUpperCase();
+  // V11.5: prefer endonym over RO name on end-user UI (participant phone view).
+  return availableEndonyms[code] || availableLanguages[code] || code.toUpperCase();
 }
 
 function getOrCreateParticipantId() {
@@ -288,7 +341,19 @@ function getVisibleLiveEntry() {
   return state.allowTranscriptFallback ? getLatestEntry() : null;
 }
 function getTextForEntry(entry) {
-  return entry?.translations?.[state.currentLanguage] || entry?.original || '';
+  const lang = state.currentLanguage;
+  const sourceLang = entry?.sourceLang || state.currentEvent?.sourceLang || 'ro';
+
+  // Dacă utilizatorul a ales limba sursă, returnăm original (corect)
+  if (lang === sourceLang) {
+    return entry?.original || '';
+  }
+
+  // Altfel, returnăm DOAR traducerea în limba aleasă
+  // BUGFIX V1: NU mai dăm fallback la original (care e în limba sursă)
+  // pentru a evita afișarea textului românesc unui participant care a ales altă limbă.
+  // Dacă lipsește traducerea, returnăm string gol -> handler-ul de afișare va păstra ultima traducere validă.
+  return entry?.translations?.[lang] || '';
 }
 
 function getEntryTimestamp(entry) {
@@ -310,9 +375,10 @@ function getSongTextForCurrentLanguage(songState) {
   if (state.currentLanguage === sourceLang) {
     return songState?.activeBlock || '';
   }
-  return songState?.translations?.[state.currentLanguage]
-    || songState?.activeBlock
-    || '';
+  // BUGFIX V3: NU mai dăm fallback la activeBlock (text original)
+  // pentru a evita afișarea textului românesc unui participant care a ales altă limbă.
+  // Returnăm string gol -> handler-ul de afișare va păstra ultima valoare sau loading dots.
+  return songState?.translations?.[state.currentLanguage] || '';
 }
 
 function getLiveEntryDuration(entry) {
@@ -549,6 +615,7 @@ async function loadParticipantEvents({ joinFixedIfLive = false } = {}) {
     const res = await fetch('/api/events/public');
     const data = await res.json();
     if (data.languageNames) availableLanguages = data.languageNames;
+    if (data.languageEndonyms) availableEndonyms = data.languageEndonyms;
     const events = data.events || [];
     renderParticipantEventList(events);
     if (state.previewMode && state.fixedEventId) {
@@ -691,9 +758,84 @@ function scrollLiveStageIntoView() {
   }, 120);
 }
 
+// SMART FLUSH V3: Loading dots indicator (replaces "Waiting..." text messages)
+function showLoadingDots() {
+  const el = document.getElementById('lastText');
+  if (!el) return;
+  el.innerHTML = '<span class="loading-dots"><span>•</span><span>•</span><span>•</span></span>';
+  el.classList.add('loading-dots-active');
+}
+
+function clearLoadingDots() {
+  const el = document.getElementById('lastText');
+  if (!el) return;
+  el.classList.remove('loading-dots-active');
+}
+
+// SMART FLUSH V1.1: smart display function with chunk merging + display delay
+function smartDisplayLiveText(newText, callback) {
+  if (!newText || !String(newText).trim()) return;
+
+  const now = Date.now();
+  const timeSinceLastDisplay = now - displayBuffer.lastDisplayTime;
+
+  // Cancel any pending timer
+  if (displayBuffer.pendingTimer) {
+    clearTimeout(displayBuffer.pendingTimer);
+    displayBuffer.pendingTimer = null;
+  }
+
+  // SCENARIO 1: Foarte recent (< MERGE_WINDOW_MS) → merge cu textul curent
+  if (timeSinceLastDisplay < displayBuffer.MERGE_WINDOW_MS) {
+    const lastTextEl = $('lastText');
+    const currentText = lastTextEl?.textContent || '';
+    // Verificăm că nu e un mesaj special (Bible Reading, Service ended, Loading dots, etc.)
+    const isLoading = !!lastTextEl?.classList?.contains('loading-dots-active');
+    const isSpecialMessage = isLoading || currentText.includes('📖') || currentText.includes('Waiting') || currentText.includes('Vă așteptăm');
+
+    if (!isSpecialMessage && currentText) {
+      const mergedText = currentText.trim() + ' ' + String(newText).trim();
+      callback(mergedText);
+      displayBuffer.lastDisplayTime = now;
+      displayBuffer.pendingText = null;
+      return;
+    }
+  }
+
+  // SCENARIO 2: Display delay (între MERGE_WINDOW_MS și MIN_DISPLAY_MS)
+  // → buffer textul, afișează la MIN_DISPLAY_MS de la ultima afișare
+  if (timeSinceLastDisplay < displayBuffer.MIN_DISPLAY_MS) {
+    const waitMs = displayBuffer.MIN_DISPLAY_MS - timeSinceLastDisplay;
+
+    // Dacă deja avem ceva în pending, COMBINĂM (chunks în coadă merg la fel ca merging)
+    if (displayBuffer.pendingText) {
+      displayBuffer.pendingText = displayBuffer.pendingText + ' ' + String(newText).trim();
+    } else {
+      displayBuffer.pendingText = String(newText).trim();
+    }
+
+    // Programăm afișare în waitMs
+    displayBuffer.pendingTimer = setTimeout(() => {
+      if (displayBuffer.pendingText) {
+        callback(displayBuffer.pendingText);
+        displayBuffer.lastDisplayTime = Date.now();
+        displayBuffer.pendingText = null;
+        displayBuffer.pendingTimer = null;
+      }
+    }, waitMs);
+    return;
+  }
+
+  // SCENARIO 3: Mai mult de MIN_DISPLAY_MS de la ultima afișare → afișează instant
+  callback(String(newText).trim());
+  displayBuffer.lastDisplayTime = now;
+  displayBuffer.pendingText = null;
+}
+
 function renderLiveView({ announce = false } = {}) {
   if (!state.currentEvent) return;
   if (state.serviceEndedAcknowledged) {
+    clearLoadingDots();
     $('lastText').textContent = getServiceEndedMessages().farewell;
     const earlierBox = $('participantEarlierLines');
     if (earlierBox) earlierBox.innerHTML = '';
@@ -703,6 +845,7 @@ function renderLiveView({ announce = false } = {}) {
   }
   if (state.currentMode === 'song' && state.currentSongState) {
     const songText = getSongTextForCurrentLanguage(state.currentSongState) || 'Waiting for song translation...';
+    clearLoadingDots();
     $('lastText').textContent = songText;
     renderEarlierLines(null);
     renderHistory();
@@ -712,9 +855,13 @@ function renderLiveView({ announce = false } = {}) {
   const visibleEntry = state.visibleLiveEntry || (state.allowTranscriptFallback ? getLatestEntry() : null);
   state.lastLiveEntryId = visibleEntry?.id || null;
   if (visibleEntry) {
-    $('lastText').innerHTML = highlightBibleRefs(getTextForEntry(visibleEntry));
+    // SMART FLUSH V1.1: wrap with smartDisplayLiveText for chunk merging + display delay
+    smartDisplayLiveText(getTextForEntry(visibleEntry), (text) => {
+      clearLoadingDots();
+      $('lastText').innerHTML = highlightBibleRefs(text);
+    });
   } else {
-    $('lastText').textContent = 'Waiting for translation...';
+    showLoadingDots();
   }
   renderEarlierLines(visibleEntry?.id || null);
   renderHistory();
@@ -906,6 +1053,18 @@ function formatServiceEndedTime(iso) {
 }
 
 function showServiceEndedOverlay(endedAt) {
+  // BUGFIX V1: cancel auto-expire timer când intrăm în mod special
+  if (typeof cancelLiveTextExpireTimer === 'function') {
+    cancelLiveTextExpireTimer();
+  }
+
+  // SMART FLUSH V1.1: cleanup display buffer când intră în mod special
+  if (displayBuffer.pendingTimer) {
+    clearTimeout(displayBuffer.pendingTimer);
+    displayBuffer.pendingTimer = null;
+  }
+  displayBuffer.pendingText = null;
+
   const overlay = $('participantServiceEnded');
   if (!overlay) return;
 
@@ -929,6 +1088,104 @@ function hideServiceEndedOverlay() {
   if (overlay) overlay.hidden = true;
   state.serviceEndedAcknowledged = true;
   renderLiveView({ announce: false });
+}
+
+// BIBLE MODE: localized messages in 12 languages
+const BIBLE_READING_MESSAGES = {
+  ro: { title: '📖 Citește din Biblie', subtitle: 'Citește din Biblia ta sau de pe ecran.' },
+  no: { title: '📖 Bibellesning', subtitle: 'Les fra din egen Bibel eller fra skjermen.' },
+  en: { title: '📖 Bible Reading', subtitle: 'Read from your Bible or from the screen.' },
+  ru: { title: '📖 Чтение Библии', subtitle: 'Читайте из своей Библии или с экрана.' },
+  uk: { title: '📖 Читання Біблії', subtitle: 'Читайте зі своєї Біблії або з екрану.' },
+  es: { title: '📖 Lectura de la Biblia', subtitle: 'Lee de tu Biblia o de la pantalla.' },
+  de: { title: '📖 Bibellesung', subtitle: 'Lies aus deiner Bibel oder vom Bildschirm.' },
+  fr: { title: '📖 Lecture de la Bible', subtitle: 'Lisez dans votre Bible ou sur l\'écran.' },
+  it: { title: '📖 Lettura della Bibbia', subtitle: 'Leggi dalla tua Bibbia o dallo schermo.' },
+  hu: { title: '📖 Bibliaolvasás', subtitle: 'Olvasd a saját Bibliádból vagy a kijelzőről.' },
+  pl: { title: '📖 Czytanie Biblii', subtitle: 'Czytaj ze swojej Biblii lub z ekranu.' },
+  pt: { title: '📖 Leitura da Bíblia', subtitle: 'Lê da tua Bíblia ou do ecrã.' }
+};
+
+function getBibleReadingText() {
+  const lang = state.currentLanguage || 'en';
+  return BIBLE_READING_MESSAGES[lang] || BIBLE_READING_MESSAGES.en;
+}
+
+// BIBLE MODE V3.3: track if Bible Reading is active in live text
+let bibleReadingLiveTextActive = false;
+
+function showBibleReadingOverlay() {
+  // BUGFIX V4: ascunde zonele de history pentru estetică clean
+  // (Earlier lines inline + History panel ar arăta traduceri vechi peste mesajul Bible Reading)
+  const earlierInline = document.getElementById('participantEarlierLines');
+  const historyPanel = document.getElementById('participantHistoryPanel');
+  if (earlierInline) earlierInline.style.display = 'none';
+  if (historyPanel) historyPanel.style.display = 'none';
+
+  // BUGFIX V1: cancel auto-expire timer când intrăm în mod special
+  if (typeof cancelLiveTextExpireTimer === 'function') {
+    cancelLiveTextExpireTimer();
+  }
+
+  // SMART FLUSH V1.1: cleanup display buffer când intră în mod special
+  if (displayBuffer.pendingTimer) {
+    clearTimeout(displayBuffer.pendingTimer);
+    displayBuffer.pendingTimer = null;
+  }
+  displayBuffer.pendingText = null;
+
+  // Bottom subtle bar with subtitle (doar instrucțiunea)
+  let bottomBar = document.getElementById('participantBibleReadingBottom');
+  if (!bottomBar) {
+    bottomBar = document.createElement('div');
+    bottomBar.id = 'participantBibleReadingBottom';
+    bottomBar.className = 'participant-bible-reading-bottom';
+    bottomBar.innerHTML = `
+      <span class="participant-bible-reading-bottom-icon">📖</span>
+      <span id="participantBibleReadingBottomText"></span>
+    `;
+    document.body.appendChild(bottomBar);
+  }
+  const text = getBibleReadingText();
+  document.getElementById('participantBibleReadingBottomText').textContent = text.subtitle;
+  bottomBar.hidden = false;
+
+  // After 3 seconds (drain pipeline), replace Live Text with Bible Reading title
+  setTimeout(() => {
+    if (state.currentEvent?.bibleMode) {
+      bibleReadingLiveTextActive = true;
+      const lastTextEl = document.getElementById('lastText');
+      if (lastTextEl) {
+        lastTextEl.innerHTML = `<span class="bible-reading-live-icon">📖</span> ${text.title}`;
+        lastTextEl.classList.add('bible-reading-mode');
+      }
+    }
+  }, 3000);
+}
+
+function hideBibleReadingOverlay() {
+  // BUGFIX V4: restaurează zonele de history (display='' = revin la stilul default din CSS)
+  const earlierInline = document.getElementById('participantEarlierLines');
+  const historyPanel = document.getElementById('participantHistoryPanel');
+  if (earlierInline) earlierInline.style.display = '';
+  if (historyPanel) historyPanel.style.display = '';
+
+  // Hide bottom bar
+  const bottomBar = document.getElementById('participantBibleReadingBottom');
+  if (bottomBar) bottomBar.hidden = true;
+
+  // Restore Live Text - remove bible mode styling
+  bibleReadingLiveTextActive = false;
+  const lastTextEl = document.getElementById('lastText');
+  if (lastTextEl) {
+    lastTextEl.classList.remove('bible-reading-mode');
+    // Don't manually set text - let the next renderLiveView call update it normally
+  }
+
+  // Trigger re-render of live view to restore proper text
+  if (typeof renderLiveView === 'function') {
+    renderLiveView({ announce: false });
+  }
 }
 
 function acceptAiNotice() {
@@ -1091,10 +1348,29 @@ socket.on('transcript_entry', (entry) => {
 socket.on('display_live_entry', (entry) => {
   if (!state.currentEvent) return;
   if (!entry?.id) return;
+
+  // BUGFIX V1: protecție limbă - dacă limba mea NU are traducere, NU procesa entry-ul.
+  // Asta evită bug-ul unde participanții vedeau text românesc în loc de limba lor selectată.
+  // Așteptăm un partial cu limba mea (sau urmatorul display_live_entry cu traducere completă).
+  const lang = state.currentLanguage;
+  const sourceLang = entry?.sourceLang || state.currentEvent?.sourceLang || 'ro';
+  const isSourceUser = lang === sourceLang;
+
+  if (!isSourceUser) {
+    const langTranslation = entry?.translations?.[lang];
+    if (typeof langTranslation !== 'string' || !langTranslation.trim()) {
+      // Skip - nu am traducere pentru limba mea, păstrăm ce afișăm acum
+      return;
+    }
+  }
+
   setParticipantUpdating(false);
   state.serviceEndedAcknowledged = false;
   state.currentEvent.latestDisplayEntry = cloneEntry(entry);
   enqueueLiveEntry(entry);
+
+  // BUGFIX V1: refresh auto-expire timer la fiecare update valid
+  refreshLiveTextExpireTimer();
 });
 
 socket.on('display_live_entry_partial', (payload) => {
@@ -1114,7 +1390,10 @@ socket.on('display_live_entry_partial', (payload) => {
     existing.translations = { ...(existing.translations || {}), [lang]: partialForLang };
     state.visibleLiveEntry = existing;
     state.lastLiveEntryId = existing.id;
+    clearLoadingDots();
     $('lastText').innerHTML = highlightBibleRefs(getTextForEntry(existing));
+    // BUGFIX V1: refresh auto-expire timer (early-return path is still real activity)
+    refreshLiveTextExpireTimer();
     return;
   }
   if (existing && existing.id !== payload.entryId) {
@@ -1136,6 +1415,9 @@ socket.on('display_live_entry_partial', (payload) => {
   state.liveEntryShownAt = Date.now();
   state.lastLiveEntryId = partialEntry.id;
   renderLiveView({ announce: false });
+
+  // BUGFIX V1: refresh auto-expire timer
+  refreshLiveTextExpireTimer();
 });
 
 socket.on('display_mode_changed', (payload) => {
@@ -1145,6 +1427,11 @@ socket.on('display_mode_changed', (payload) => {
     ...payload
   };
   if ((payload?.mode || '') === 'auto') {
+    // V11.1: when song_clear just fired, the server emits display_mode_changed mode='auto'
+    // as part of the same flow. Without suppression, this would set allowTranscriptFallback=true
+    // and render the latest stale transcript — overriding the "show 3-dot loader until fresh
+    // entry" intent. 3-second suppression window lets the song_clear visual settle first.
+    if (state.suppressTranscriptFallback) return;
     state.awaitingFreshLiveEntry = false;
     state.freshLiveStartedAt = 0;
     state.freshLiveBlockedEntryIds = new Set();
@@ -1181,6 +1468,19 @@ socket.on('service_ended', (payload) => {
   showServiceEndedOverlay(payload?.endedAt);
 });
 
+// BIBLE MODE: handle activation/deactivation
+socket.on('bible_mode_changed', (payload) => {
+  // V3.3: keep state in sync so the 3s drain guard inside showBibleReadingOverlay sees the current value
+  if (state.currentEvent) {
+    state.currentEvent.bibleMode = !!payload?.enabled;
+  }
+  if (payload?.enabled) {
+    showBibleReadingOverlay();
+  } else {
+    hideBibleReadingOverlay();
+  }
+});
+
 socket.on('audio_state', ({ audioMuted }) => {
   state.serverAudioMuted = !!audioMuted;
   if (audioMuted) {
@@ -1207,7 +1507,7 @@ socket.on('active_event_changed', async () => {
     state.liveEntryTimer = null;
     $('participantEventName').textContent = 'Choose a live event';
     $('participantEventMeta').textContent = 'The previous event is no longer live.';
-    $('lastText').textContent = 'Waiting for live event...';
+    showLoadingDots();
     $('history').innerHTML = '';
     const chooser = $('participantEventChooser');
     if (chooser) chooser.hidden = false;
@@ -1220,6 +1520,10 @@ socket.on('mode_changed', ({ mode }) => {
   if (state.currentEvent) state.currentEvent.mode = state.currentMode;
   syncLanguageOptions({ ...state.currentEvent, mode: state.currentMode, songState: state.currentSongState });
   if (mode === 'song') {
+    // BUGFIX V1: cancel auto-expire timer când intrăm în mod special
+    if (typeof cancelLiveTextExpireTimer === 'function') {
+      cancelLiveTextExpireTimer();
+    }
     state.visibleLiveEntry = null;
     state.awaitingFreshLiveEntry = false;
     state.allowTranscriptFallback = false;
@@ -1230,16 +1534,24 @@ socket.on('mode_changed', ({ mode }) => {
     state.liveEntryTimer = null;
     setStatus('Song active on public screen.');
   } else {
-    state.awaitingFreshLiveEntry = false;
-    state.allowTranscriptFallback = true;
-    state.freshLiveStartedAt = 0;
-    state.freshLiveBlockedEntryIds = new Set();
+    // V11.1: respect song_clear's 3-sec suppression window — keep awaiting fresh entry,
+    // don't fall back to latest stale transcript while the loading dots are showing.
+    if (!state.suppressTranscriptFallback) {
+      state.awaitingFreshLiveEntry = false;
+      state.allowTranscriptFallback = true;
+      state.freshLiveStartedAt = 0;
+      state.freshLiveBlockedEntryIds = new Set();
+    }
     setStatus(state.serverAudioMuted ? 'Audio is muted by the operator. You cannot enable it right now.' : 'Connected.');
   }
   renderLiveView({ announce: false });
 });
 
 socket.on('song_state', (songState) => {
+  // BUGFIX V1: cancel auto-expire timer când intrăm în mod special
+  if (typeof cancelLiveTextExpireTimer === 'function') {
+    cancelLiveTextExpireTimer();
+  }
   state.currentMode = 'song';
   state.currentSongState = songState;
   state.visibleLiveEntry = null;
@@ -1277,9 +1589,33 @@ socket.on('song_clear', () => {
   state.currentMode = 'live';
   state.currentSongState = null;
   if (state.currentEvent) state.currentEvent.latestDisplayEntry = null;
+  // V11: explicit visual reset so participant sees the song text disappear immediately.
+  // V11.1: show the 3-dot loader (Smart Flush V3) + suppress transcript fallback for 3 sec
+  // so the follow-up display_mode_changed mode='auto' event (which normally enables
+  // allowTranscriptFallback=true → renders latest old transcript) does NOT override the
+  // "waiting for fresh entry" intent. After 3s the suppression lifts naturally so the
+  // normal mode=auto behavior resumes for future live updates.
+  state.visibleLiveEntry = null;
+  state.liveEntryQueue = [];
+  if (state.liveEntryTimer) { clearTimeout(state.liveEntryTimer); state.liveEntryTimer = null; }
+  const earlierBox = document.getElementById('participantEarlierLines');
+  if (earlierBox) earlierBox.innerHTML = '';
+  // SMART FLUSH V1.1: drop any pending buffered chunks that were about to be displayed
+  if (displayBuffer.pendingTimer) { clearTimeout(displayBuffer.pendingTimer); displayBuffer.pendingTimer = null; }
+  displayBuffer.pendingText = null;
+  // V11.1: explicit 3-dot loader instead of static text (matches Smart Flush V3 design)
+  showLoadingDots();
+  // V11.1: sticky suppression flag — display_mode_changed honors this for 3s
+  state.suppressTranscriptFallback = true;
+  if (state.suppressTranscriptFallbackTimer) clearTimeout(state.suppressTranscriptFallbackTimer);
+  state.suppressTranscriptFallbackTimer = setTimeout(() => {
+    state.suppressTranscriptFallback = false;
+    state.suppressTranscriptFallbackTimer = null;
+  }, 3000);
   syncLanguageOptions({ ...state.currentEvent, mode: 'live', songState: null });
   waitForFreshLiveEntry();
-  renderLiveView({ announce: false });
+  // Don't call renderLiveView here — it would overwrite showLoadingDots if no fresh entry.
+  // waitForFreshLiveEntry already calls renderLiveView; that one will respect the dots.
 });
 
 $('languageSelect').addEventListener('change', handleLanguageChange);
@@ -1344,6 +1680,7 @@ window.addEventListener('load', async () => {
     const res = await fetch('/api/languages');
     const data = await res.json();
     availableLanguages = data.languages || {};
+    availableEndonyms = data.languageEndonyms || {};
   } catch (_) {}
 
   try {

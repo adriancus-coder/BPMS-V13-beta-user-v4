@@ -1,3 +1,7 @@
+# Render Blueprint for Sanctuary Voice
+# Single Node web service + 1GB persistent disk for sessions/cache/backups.
+# Env list mirrors .env.example. Secrets use sync:false — populate in Render dashboard.
+
 services:
   - type: web
     name: sanctuary-voice
@@ -6,10 +10,99 @@ services:
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/health
+
+    # V10.1 fix O1: persistent disk so /var/data (sessions.json, translation-cache.json,
+    # lang-mismatch-log.json, audit-backup-*.json, sessions.backup-*.json) survives redeploys.
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1
+
     envVars:
+      # ── OpenAI ──────────────────────────────────────────────────────────────
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MODEL
         value: gpt-4.1-nano
       - key: OPENAI_TRANSCRIBE_MODEL
         value: gpt-4o-mini-transcribe
+
+      # ── Speech provider ─────────────────────────────────────────────────────
+      - key: SPEECH_PROVIDER
+        value: openai
+      - key: AZURE_SPEECH_KEY
+        sync: false
+      - key: AZURE_SPEECH_REGION
+        sync: false
+
+      # ── Rate limits ─────────────────────────────────────────────────────────
+      - key: TRANSCRIBE_RATE_LIMIT_WINDOW_MS
+        value: 60000
+      - key: TRANSCRIBE_RATE_LIMIT_MAX
+        value: 40
+
+      # ── Admin auth (PIN secrets — populate in dashboard) ────────────────────
+      - key: MASTER_ADMIN_PIN
+        sync: false
+      - key: MASTER_MODERATOR_PIN
+        sync: false
+      - key: MAIN_OPERATOR_PIN
+        sync: false
+      - key: ADMIN_CODE
+        sync: false
+      - key: ADMIN_SESSION_SECRET
+        sync: false
+      - key: ADMIN_SESSION_PERSISTENT
+        value: 0
+      - key: ADMIN_SESSION_MAX_AGE_HOURS
+        value: 12
+      - key: OPERATOR_SESSION_MAX_AGE_HOURS
+        value: 4
+
+      # ── Public URLs ─────────────────────────────────────────────────────────
+      - key: PUBLIC_BASE_URL
+        value: https://sanctuaryvoice.com
+      - key: ADMIN_APP_BASE_URL
+        value: https://app.sanctuaryvoice.com
+      - key: ADMIN_APP_HOSTNAMES
+        value: app.sanctuaryvoice.com,control.sanctuaryvoice.com,kontrol.sanctuaryvoice.com
+
+      # ── Organization defaults ───────────────────────────────────────────────
+      - key: DEFAULT_ORG_ID
+        value: sanctuary-voice
+      - key: DEFAULT_ORG_NAME
+        value: Sanctuary Voice
+      - key: DEFAULT_ORG_PLAN
+        value: internal
+      - key: COMMERCIAL_MODE
+        value: 0
+
+      # ── Storage paths (DATA_DIR defaults to /var/data on Render; LOG_DIR defaults to ./logs) ─
+      - key: DATA_DIR
+        value: /var/data
+      - key: LOG_DIR
+        value: /var/data/logs
+
+      # ── Audio archive (optional — set ENABLED=1 to start archiving) ─────────
+      - key: AUDIO_ARCHIVE_ENABLED
+        value: 0
+      - key: AUDIO_ARCHIVE_DIR
+        value: /var/data/audio
+      - key: AUDIO_ARCHIVE_MAX_BYTES_PER_EVENT
+        value: 0
+
+      # ── Web Push (optional — generate with npx web-push generate-vapid-keys) ─
+      - key: WEB_PUSH_PUBLIC_KEY
+        sync: false
+      - key: WEB_PUSH_PRIVATE_KEY
+        sync: false
+      - key: WEB_PUSH_SUBJECT
+        value: mailto:admin@sanctuaryvoice.com
+
+      # ── Monitoring / webhooks (optional) ────────────────────────────────────
+      - key: SUMMARY_WEBHOOK_URL
+        sync: false
+      - key: SUMMARY_RECIPIENT
+        sync: false
+      - key: TRANSLATION_MONITOR_ENABLED
+        value: 0

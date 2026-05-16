@@ -4,6 +4,9 @@ const $ = (id) => document.getElementById(id);
 let currentEvent = null;
 window.partialTranscriptHistory = [];
 let lastPartialCaptured = '';
+// FEATURE 1: Tracking strofe afișate per cântec (reset la cântec nou)
+let displayedSongBlocks = new Set();  // indici strofe deja afișate
+let currentSongTitle = '';  // pentru a detecta schimb cântec
 let currentGlobalSongLibrary = [];
 let currentPinnedTextLibrary = [];
 let availableEventsList = [];
@@ -61,8 +64,11 @@ function langLabel(code) {
   return availableLanguages[code] || code.toUpperCase();
 }
 
+// V11.17: local state for Create Event target language selection (source of truth for chips + dropdown)
+let selectedTargetLangs = ['no', 'en'];
+
 function selectedLangs() {
-  return Array.from(document.querySelectorAll('#targetLangList input[type="checkbox"][value]:checked')).map((i) => i.value);
+  return [...selectedTargetLangs];
 }
 
 function setStatus(text) {
@@ -707,17 +713,51 @@ function fillGlossaryLangs(targetLangs = []) {
   });
 }
 
+// V11.17: Target Languages picker — chips + dropdown adder (Create Event form)
+function renderTargetLangChips() {
+  const chipsContainer = document.getElementById('targetLangChips');
+  if (!chipsContainer) return;
+  chipsContainer.innerHTML = '';
+  selectedTargetLangs.forEach((code) => {
+    const label = availableLanguages[code] || code.toUpperCase();
+    const chip = document.createElement('span');
+    chip.className = 'target-lang-chip';
+    chip.dataset.code = code;
+    chip.innerHTML = `
+      <span class="target-lang-chip-label">${escapeHtml(label)}</span>
+      <button type="button" class="target-lang-chip-remove" data-action="remove-target-lang" aria-label="Elimină ${escapeHtml(label)}">×</button>
+    `;
+    chipsContainer.appendChild(chip);
+  });
+}
+
+function renderTargetLangAddOptions() {
+  const select = document.getElementById('targetLangAddSelect');
+  if (!select) return;
+  select.innerHTML = '<option value="">Adaugă limbă...</option>';
+  Object.keys(availableLanguages).forEach((code) => {
+    if (selectedTargetLangs.includes(code)) return;
+    const opt = document.createElement('option');
+    opt.value = code;
+    opt.textContent = availableLanguages[code] || code.toUpperCase();
+    select.appendChild(opt);
+  });
+}
+
+function updateTargetLangPicker() {
+  renderTargetLangChips();
+  renderTargetLangAddOptions();
+}
+
 function fillLanguageSelectors() {
   const sourceSelect = $('sourceLang');
   const currentSourceSelect = $('currentSourceLang');
   const songSourceSelect = $('songSourceLang');
   const manualSourceSelect = $('manualSourceLang');
-  const targetBox = $('targetLangList');
   sourceSelect.innerHTML = '';
   if (currentSourceSelect) currentSourceSelect.innerHTML = '';
   if (songSourceSelect) songSourceSelect.innerHTML = '';
   if (manualSourceSelect) manualSourceSelect.innerHTML = '';
-  targetBox.innerHTML = '';
   Object.entries(availableLanguages).forEach(([code, label]) => {
     const option = document.createElement('option');
     option.value = code;
@@ -745,12 +785,8 @@ function fillLanguageSelectors() {
       if (code === 'ro') manualOption.selected = true;
       manualSourceSelect.appendChild(manualOption);
     }
-    const checked = ['no', 'en'].includes(code);
-    const row = document.createElement('label');
-    row.className = 'checkbox-item';
-    row.innerHTML = `<input type="checkbox" value="${code}" ${checked ? 'checked' : ''}> ${escapeHtml(label)}`;
-    targetBox.appendChild(row);
   });
+  updateTargetLangPicker();
 }
 
 function copyField(id, buttonId) {
@@ -1143,8 +1179,9 @@ function renderEventList(events = [], activeEventId = null, openedEventId = null
   `;
   box.appendChild(bulkBar);
   events.forEach((event) => {
-    const card = document.createElement('div');
-    card.className = `event-card${event.id === activeEventId ? ' active' : ''}${event.id === openedEventId ? ' opened' : ''}`;
+    // V11.17: collapsible event card (reuses Library Songs <details> pattern)
+    const card = document.createElement('details');
+    card.className = `event-card library-card-details${event.id === activeEventId ? ' active' : ''}${event.id === openedEventId ? ' opened' : ''}`;
     const langs = (event.targetLangs || []).map((lang) => langLabel(lang)).join(', ');
     const displayId = event.shortId || event.id;
     const badges = [`<div class="mini-badge">${event.mode || 'live'}</div>`];
@@ -1155,24 +1192,30 @@ function renderEventList(events = [], activeEventId = null, openedEventId = null
       ? 'Make this event visible in the participant chooser. Useful for live testing.'
       : 'Hide this event from the participant chooser.';
     card.innerHTML = `
-      <div class="event-card-head">
-        <label class="bulk-select inline-check"><input type="checkbox" class="event-bulk-checkbox" data-id="${event.id}" data-scheduled="${event.scheduledTimestamp || 0}"></label>
-        <div class="event-name">${escapeHtml(event.name || 'New event')}</div>${badges.join('')}
-      </div>
-      <div class="event-id-row">
-        <span class="event-id-label">Event ID</span>
-        <code class="event-id-value">${escapeHtml(displayId)}</code>
-        <button class="btn btn-dark event-id-copy" type="button" data-action="copy-id" data-id="${displayId}" title="Copy Event ID">Copy</button>
-      </div>
-      <div class="muted">Scheduled: ${escapeHtml(formatDateTime(event.scheduledAt || event.createdAt))}</div>
-      <div class="muted">Languages: ${escapeHtml(langs || '-')}</div>
-      <div class="muted">Texts: ${event.transcriptCount || 0}</div>
-      <div class="button-row compact">
-        <button class="btn btn-dark" data-action="open" data-id="${event.id}" title="Load this event in Live Control to edit transcript, glossary, songs, and main screen.">Open</button>
-        <button class="btn btn-primary" data-action="activate" data-id="${event.id}" title="Make this the active event for participants and the main screen. Only one event can be live at a time."${event.id === activeEventId ? ' disabled' : ''}>${event.id === activeEventId ? 'Live now' : 'Set live'}</button>
-        <button class="btn btn-dark" data-action="duplicate" data-id="${event.id}" title="Create a new event with the same languages, glossary, and song library — clean transcript and stats.">Duplicate</button>
-        <button class="btn btn-dark" data-action="visibility" data-id="${event.id}" title="${escapeHtml(visibilityTitle)}">${visibilityLabel}</button>
-        <button class="btn btn-danger" data-action="delete" data-id="${event.id}">Delete</button>
+      <summary class="library-card-summary">
+        <span class="event-summary-title">${escapeHtml(event.name || 'New event')}</span>
+        <span class="event-summary-meta">
+          ${badges.join('')}
+          <span class="event-summary-date">${escapeHtml(formatDateTime(event.scheduledAt || event.createdAt))}</span>
+        </span>
+      </summary>
+      <div class="library-card-body">
+        <label class="bulk-select inline-check"><input type="checkbox" class="event-bulk-checkbox" data-id="${event.id}" data-scheduled="${event.scheduledTimestamp || 0}"> Select for bulk delete</label>
+        <div class="event-id-row">
+          <span class="event-id-label">Event ID</span>
+          <code class="event-id-value">${escapeHtml(displayId)}</code>
+          <button class="btn btn-dark event-id-copy" type="button" data-action="copy-id" data-id="${displayId}" title="Copy Event ID">Copy</button>
+        </div>
+        <div class="muted">Scheduled: ${escapeHtml(formatDateTime(event.scheduledAt || event.createdAt))}</div>
+        <div class="muted">Languages: ${escapeHtml(langs || '-')}</div>
+        <div class="muted">Texts: ${event.transcriptCount || 0}</div>
+        <div class="button-row compact">
+          <button class="btn btn-dark" data-action="open" data-id="${event.id}" title="Load this event in Live Control to edit transcript, glossary, songs, and main screen.">Open</button>
+          <button class="btn btn-primary" data-action="activate" data-id="${event.id}" title="Make this the active event for participants and the main screen. Only one event can be live at a time."${event.id === activeEventId ? ' disabled' : ''}>${event.id === activeEventId ? 'Live now' : 'Set live'}</button>
+          <button class="btn btn-dark" data-action="duplicate" data-id="${event.id}" title="Create a new event with the same languages, glossary, and song library — clean transcript and stats.">Duplicate</button>
+          <button class="btn btn-dark" data-action="visibility" data-id="${event.id}" title="${escapeHtml(visibilityTitle)}">${visibilityLabel}</button>
+          <button class="btn btn-danger" data-action="delete" data-id="${event.id}">Delete</button>
+        </div>
       </div>`;
     box.appendChild(card);
   });
@@ -1409,9 +1452,23 @@ function renderSongState(songState) {
   const activeBlock = typeof songState?.activeBlock === 'string' ? songState.activeBlock : '';
   const sourceLang = songState?.sourceLang || getSongSourceLang();
 
+  // FEATURE 1: Reset displayedSongBlocks la cântec nou
+  const incomingTitle = String(songState?.title || '');
+  if (incomingTitle !== currentSongTitle) {
+    displayedSongBlocks = new Set();
+    currentSongTitle = incomingTitle;
+  }
+  // Strofa curentă este (sau a fost) afișată
+  if (currentIndex >= 0) {
+    displayedSongBlocks.add(currentIndex);
+  }
+
   summaryEl.textContent = `Saved: ${libraryCount} · History: ${historyCount} · Language: ${langLabel(sourceLang)}`;
   previewEl.textContent = activeBlock || currentEvent?.displayState?.manualSource || 'Song text will appear here.';
   renderSongJumpSelect(blocks, labels, currentIndex);
+
+  // FEATURE 3: Show Edit button if song is active
+  if (typeof showEditLiveVerseBtn === 'function') showEditLiveVerseBtn(!!activeBlock);
 
   if (!blocks.length) {
     blocksEl.innerHTML = '<div class="muted">Use Save in library or Send first verse live.</div>';
@@ -1420,13 +1477,15 @@ function renderSongState(songState) {
 
   blocksEl.innerHTML = blocks.map((block, index) => {
     const activeClass = index === currentIndex ? ' active' : '';
+    // FEATURE 1: marker strofe deja afișate (dar nu activa)
+    const displayedClass = displayedSongBlocks.has(index) && index !== currentIndex ? ' already-displayed' : '';
     const label = escapeHtml(labels[index] || `Verse ${index + 1}`);
     // Preview scurt: doar prima linie de text (max 80 caractere) pentru identificare rapidă
     const firstLine = (block || '').split('\n')[0] || '';
     const preview = firstLine.length > 80 ? firstLine.slice(0, 80) + '...' : firstLine;
     return `
-      <div class="song-section-item-wrap${activeClass}">
-        <button class="history-item song-section-item${activeClass}" type="button" data-song-block-index="${index}">
+      <div class="song-section-item-wrap${activeClass}${displayedClass}">
+        <button class="history-item song-section-item${activeClass}${displayedClass}" type="button" data-song-block-index="${index}">
           <div class="entry-head">
             <b>${label}</b>
             <span class="small">${index === currentIndex ? 'Live now' : 'Click to send live'}</span>
@@ -1456,21 +1515,16 @@ function renderGlobalSongLibrary(items = []) {
       </summary>
       <div class="library-card-body">
         <div class="small"><b>Language:</b> ${escapeHtml(langLabel(item.sourceLang || currentEvent?.sourceLang || 'ro'))}</div>
-        <div class="actions">
+        <div class="library-card-actions">
           <button class="btn btn-dark" data-global-song-action="load" data-global-song-id="${item.id}">Load in editor</button>
           <button class="btn btn-primary" data-global-song-action="send" data-global-song-id="${item.id}">Send first verse</button>
-        </div>
-        <div class="split-2 compact-library-row">
-          <div>
-            <label>Choose event</label>
-            <select data-global-song-target="${item.id}">
+          <span class="add-event-split">
+            <button class="btn btn-dark add-event-btn" data-global-song-action="add" data-global-song-id="${item.id}">Add to event</button>
+            <select class="add-event-select" aria-label="Choose event to add this song to" data-global-song-target="${item.id}">
               ${getTargetEventChoices(selectedEventId)}
             </select>
-          </div>
-          <div class="library-inline-actions">
-            <button class="btn btn-dark" data-global-song-action="add" data-global-song-id="${item.id}">Add to event</button>
-            <button data-global-song-action="delete" data-global-song-id="${item.id}">Delete</button>
-          </div>
+          </span>
+          <button class="btn btn-danger" data-global-song-action="delete" data-global-song-id="${item.id}">🗑 Delete</button>
         </div>
       </div>
     </details>
@@ -1497,7 +1551,7 @@ function renderPinnedTextLibrary(items = []) {
         <div class="actions">
           <button class="btn btn-dark" type="button" data-manual-library-action="load" data-manual-library-id="${item.id}">Load in editor</button>
           <button class="btn btn-primary" type="button" data-manual-library-action="send" data-manual-library-id="${item.id}">Send to main screen</button>
-          <button type="button" data-manual-library-action="delete" data-manual-library-id="${item.id}">Delete</button>
+          <button class="btn btn-danger" type="button" data-manual-library-action="delete" data-manual-library-id="${item.id}">🗑 Delete</button>
         </div>
       </div>
     </details>
@@ -1575,20 +1629,23 @@ async function saveSongToLibrary() {
 }
 
 async function sendSongItemToLive(item) {
-  if (!currentEvent) return alert('Open or create an event first.');
+  // V11.11: return true/false so callers (e.g. Library handler) can auto-close UI on success.
+  // Existing caller sendSongToLive() ignores the return value — backward compatible.
+  if (!currentEvent) { alert('Open or create an event first.'); return false; }
   const title = String(item?.title || '').trim();
   const text = String(item?.text || '').trim();
   const labels = Array.isArray(item?.labels) ? item.labels : getSongEditorLabels();
   const sourceLang = String(item?.sourceLang || getSongSourceLang()).trim() || currentEvent?.sourceLang || 'ro';
-  if (!text) return alert('Write text first.');
+  if (!text) { alert('Write text first.'); return false; }
   const res = await fetch(`/api/events/${currentEvent.id}/song/load`, adminJsonOptions('POST', { title, text, labels, sourceLang }));
   const data = await res.json();
-  if (!data.ok) return alert(data.error || 'Could not start verse mode.');
+  if (!data.ok) { alert(data.error || 'Could not start verse mode.'); return false; }
   currentEvent = data.event || currentEvent;
   currentEvent.songState = data.songState || currentEvent.songState;
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
   setStatus('First verse is live. Choose any verse or chorus to send it live.');
+  return true;
 }
 
 async function sendSongToLive() {
@@ -1639,6 +1696,19 @@ async function goToPrevSongBlock() {
   renderActiveEventBadge(currentEvent);
   renderSongState(currentEvent.songState || {});
   setStatus('Moved to previous verse.');
+}
+
+// FEATURE 2: Wrapper care confirmă cu admin înainte de a comuta pe Live Text.
+async function setDisplayModeWithConfirmation(mode) {
+  if (mode === 'auto') {
+    const confirmed = window.confirm(
+      'Live Text on Main Screen is unusual.\n\n' +
+      'Main Screen is typically for Song display.\n\n' +
+      'Are you sure you want to show Live Text on the projector?'
+    );
+    if (!confirmed) return;
+  }
+  return setDisplayMode(mode);
 }
 
 async function setDisplayMode(mode) {
@@ -2290,6 +2360,137 @@ function updateMonitorGain() {
   if (audioState.monitorGainNode) audioState.monitorGainNode.gain.value = gain;
 }
 
+// ============================================
+// MUTE INPUT V3: reusable mute functionality
+// Used by: manual checkbox + Bible Mode auto
+// ============================================
+
+// State pentru tracking - cine a inițiat mute (pentru edge case)
+const muteInputState = {
+  savedGainPercent: null,        // valoarea slider-ului dinainte de mute
+  isMuted: false,                // is currently muted?
+  initiator: null                // 'manual' | 'bible-mode' | null
+};
+
+/**
+ * Mute or unmute the microphone input.
+ * @param {boolean} enabled - true to mute, false to unmute
+ * @param {string} initiator - 'manual' or 'bible-mode'
+ * @returns {boolean} success
+ */
+function muteInputAudio(enabled, initiator = 'manual') {
+  if (!audioState.preampNode) {
+    // Audio not initialized yet - update UI state + slider so createAudioPipeline finds correct value
+    const slider = $('inputGainRange');
+
+    if (enabled) {
+      // Save current slider value, set to 0
+      const currentValue = Number(slider?.value || 100);
+      muteInputState.savedGainPercent = currentValue;
+      muteInputState.isMuted = true;
+      muteInputState.initiator = initiator;
+
+      if (slider) {
+        slider.value = 0;
+        updateInputGain(); // updates label
+      }
+    } else {
+      // Restore slider value
+      const restoreValue = muteInputState.savedGainPercent ?? 100;
+
+      if (slider) {
+        slider.value = restoreValue;
+        updateInputGain();
+      }
+
+      muteInputState.savedGainPercent = null;
+      muteInputState.isMuted = false;
+      muteInputState.initiator = null;
+    }
+
+    updateMuteInputUI();
+    return true;
+  }
+
+  if (enabled && !muteInputState.isMuted) {
+    // ENABLE MUTE
+    const slider = $('inputGainRange');
+    const currentValue = Number(slider?.value || 100);
+    muteInputState.savedGainPercent = currentValue;
+    muteInputState.isMuted = true;
+    muteInputState.initiator = initiator;
+
+    // Set slider to 0 (visual feedback) and gain to 0 (real audio)
+    if (slider) {
+      slider.value = 0;
+      updateInputGain(); // recalculates label and applies gain
+    }
+
+    updateMuteInputUI();
+    return true;
+  }
+
+  if (!enabled && muteInputState.isMuted) {
+    // DISABLE MUTE
+    const slider = $('inputGainRange');
+    const restoreValue = muteInputState.savedGainPercent ?? 100;
+
+    if (slider) {
+      slider.value = restoreValue;
+      updateInputGain();
+    }
+
+    muteInputState.savedGainPercent = null;
+    muteInputState.isMuted = false;
+    muteInputState.initiator = null;
+
+    updateMuteInputUI();
+    return true;
+  }
+
+  return false; // no change
+}
+
+function updateMuteInputUI() {
+  const checkbox = $('muteInputBox');
+  const status = $('muteInputStatus');
+  const slider = $('inputGainRange');
+  const row = checkbox?.closest('.mute-input-row');
+
+  if (checkbox) checkbox.checked = muteInputState.isMuted;
+  if (status) status.hidden = !muteInputState.isMuted;
+
+  if (row) {
+    if (muteInputState.isMuted) {
+      row.classList.add('muted-active');
+    } else {
+      row.classList.remove('muted-active');
+    }
+  }
+
+  // Optionally disable slider visually during mute (still functional, but discouraged)
+  // Doar dacă e bibleMode, dezactivăm slider visual (operator nu trebuie să-l miște)
+  // Dacă e manual mute, lăsăm slider activ - operator poate ajusta gain salvat
+  if (slider) {
+    if (muteInputState.isMuted && muteInputState.initiator === 'bible-mode') {
+      slider.classList.add('mute-input-disabled-slider');
+    } else {
+      slider.classList.remove('mute-input-disabled-slider');
+    }
+  }
+}
+
+// Listener pentru checkbox manual
+$('muteInputBox')?.addEventListener('change', (e) => {
+  const enabled = e.target.checked;
+  muteInputAudio(enabled, 'manual');
+  if (enabled) {
+    setStatus('🔇 Microphone muted', 'info');
+  } else {
+    setStatus('🎤 Microphone unmuted', 'ok');
+  }
+});
+
 function startMeterLoop() {
   if (!audioState.analyser) return;
   const displayData = new Uint8Array(audioState.analyser.fftSize);
@@ -2351,6 +2552,10 @@ async function createAudioPipeline(options = {}) {
   audioState.preampNode.connect(audioState.monitorGainNode);
   audioState.monitorGainNode.connect(audioState.context.destination);
   audioState.gainNode.gain.value = 1;
+  // MUTE INPUT V3: dacă era setat mute înainte de crearea pipeline-ului, aplicăm
+  if (muteInputState.isMuted && audioState.preampNode) {
+    audioState.preampNode.gain.value = 0;
+  }
   updateInputGain();
   updateMonitorGain();
   startMeterLoop();
@@ -2843,6 +3048,57 @@ async function clearSong() {
   setStatus('Editor cleared.');
 }
 
+// FEATURE 3: Edit Live Verse logic
+function showEditLiveVerseBtn(visible) {
+  const btn = $('editLiveVerseBtn');
+  if (btn) btn.hidden = !visible;
+}
+
+function openEditLiveVerseModal() {
+  const songState = currentEvent?.songState;
+  if (!songState || !songState.activeBlock) return alert('No active verse to edit.');
+  $('editLiveVerseText').value = songState.activeBlock;
+  $('editLiveVerseModal').hidden = false;
+  setTimeout(() => { $('editLiveVerseText')?.focus(); }, 50);
+}
+
+function closeEditLiveVerseModal() {
+  const modal = $('editLiveVerseModal');
+  if (modal) modal.hidden = true;
+}
+
+async function saveEditedVerse(updateLibrary) {
+  if (!currentEvent) return alert('Open an event first.');
+  const newText = $('editLiveVerseText').value.trim();
+  if (!newText) return alert('Verse text cannot be empty.');
+
+  if (updateLibrary) {
+    const confirmed = window.confirm(
+      'This will update the original song in the church library.\n\n' +
+      'The change will be saved permanently. Continue?'
+    );
+    if (!confirmed) return;
+  }
+
+  const res = await fetch(`/api/events/${currentEvent.id}/song/edit-active-block`, adminJsonOptions('POST', {
+    newText,
+    updateLibrary: !!updateLibrary
+  }));
+  const data = await res.json();
+  if (!data.ok) return alert(data.error || 'Could not save edited verse.');
+
+  if (data.event) currentEvent = data.event;
+  currentEvent.songState = data.songState || currentEvent.songState;
+  if (Array.isArray(data.globalSongLibrary)) {
+    currentGlobalSongLibrary = data.globalSongLibrary;
+    renderGlobalSongLibrary(currentGlobalSongLibrary);
+  }
+
+  renderSongState(currentEvent.songState || {});
+  closeEditLiveVerseModal();
+  setStatus(updateLibrary ? 'Verse updated and saved to library.' : 'Verse updated for current event only.');
+}
+
 
 socket.on('joined_event', ({ event, role }) => {
   if (role !== 'admin') return;
@@ -2869,6 +3125,7 @@ socket.on('joined_event', ({ event, role }) => {
   closeInlineEditors();
   refreshEventList();
   setPartialTranscript();
+  updateBibleModeUI();
 });
 
 socket.on('transcript_entry', (entry) => {
@@ -3082,6 +3339,25 @@ relocateMainScreenControls();
 // În TASK 32c sidebar-ul va fi eliminat complet.
 document.querySelectorAll('.nav-btn, .top-nav-btn').forEach((btn) => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
 $('createEventBtn').addEventListener('click', createEvent);
+
+// V11.17: Target Languages picker — add via dropdown, remove via chip ×
+document.getElementById('targetLangAddSelect')?.addEventListener('change', (e) => {
+  const code = e.target.value;
+  if (code && !selectedTargetLangs.includes(code)) {
+    selectedTargetLangs.push(code);
+    updateTargetLangPicker();
+  }
+  e.target.value = '';
+});
+document.getElementById('targetLangChips')?.addEventListener('click', (e) => {
+  const removeBtn = e.target.closest('[data-action="remove-target-lang"]');
+  if (!removeBtn) return;
+  const code = removeBtn.closest('.target-lang-chip')?.dataset.code;
+  if (!code) return;
+  selectedTargetLangs = selectedTargetLangs.filter((c) => c !== code);
+  updateTargetLangPicker();
+});
+
 $('sendManualLiveBtn').addEventListener('click', () => sendManualText('auto'));
 $('sendManualDisplayBtn').addEventListener('click', () => sendManualText('manual'));
 $('saveManualLibraryBtn').addEventListener('click', savePinnedTextToLibrary);
@@ -3159,6 +3435,129 @@ $('audioInput').addEventListener('change', async () => {
 });
 $('startRecognitionBtn').addEventListener('click', startTranslation);
 $('stopRecognitionBtn').addEventListener('click', stopTranslation);
+
+// BIBLE MODE: toggle button
+$('bibleModeBtn')?.addEventListener('click', toggleBibleMode);
+
+async function toggleBibleMode() {
+  if (!currentEvent?.id) {
+    setStatus('No active event.', 'warn');
+    return;
+  }
+  const willEnable = !currentEvent.bibleMode;
+
+  try {
+    if (willEnable) {
+      // ACTIVATING: mute via reusable function (drain pipeline)
+      // Save mute state BEFORE we enable, ca să știm la dezactivare ce să facem
+      const wasMutedBefore = muteInputState.isMuted;
+      const wasMutedByManual = wasMutedBefore && muteInputState.initiator === 'manual';
+
+      // Mark this Bible Mode session - dacă era deja mut manual, păstrăm acel context
+      currentEvent._bibleModeSetMute = !wasMutedBefore; // true = noi am setat mute
+      currentEvent._bibleModePreservedManualMute = wasMutedByManual;
+
+      // Apply mute (sau dacă era deja mut manual, nu se schimbă nimic)
+      if (!wasMutedBefore) {
+        muteInputAudio(true, 'bible-mode');
+      }
+
+      setStatus('📖 Activating Bible Mode... draining pipeline', 'info');
+
+      // Wait 3 seconds for any in-flight translations to complete and reach participants
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+
+    // Send to server
+    const res = await fetch(`/api/events/${currentEvent.id}/bible-mode`,
+      adminJsonOptions('POST', { enabled: willEnable }));
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to toggle Bible Mode');
+
+    currentEvent.bibleMode = data.bibleMode;
+    if (data.displayState) currentEvent.displayState = data.displayState;
+
+    if (!willEnable) {
+      // DEACTIVATING: edge case - debifează DOAR dacă Bible Mode a bifat
+      // Dacă era manual mute înainte, păstrează-l
+      if (currentEvent._bibleModeSetMute && !currentEvent._bibleModePreservedManualMute) {
+        // Bible Mode a bifat - debifăm
+        muteInputAudio(false, 'bible-mode');
+      }
+      // Reset tracking flags
+      delete currentEvent._bibleModeSetMute;
+      delete currentEvent._bibleModePreservedManualMute;
+    }
+
+    updateBibleModeUI();
+    setStatus(willEnable
+      ? '📖 Bible Mode ON'
+      : '📖 Bible Mode OFF',
+      'ok');
+  } catch (err) {
+    console.error('[bible-mode] toggle failed:', err);
+    setStatus('Bible Mode toggle failed.', 'warn');
+
+    // Cleanup on error: dacă noi am bifat, debifăm
+    if (willEnable && currentEvent?._bibleModeSetMute) {
+      muteInputAudio(false, 'bible-mode');
+      delete currentEvent._bibleModeSetMute;
+      delete currentEvent._bibleModePreservedManualMute;
+    }
+  }
+}
+
+function updateBibleModeUI() {
+  // Tab Dashboard button
+  const btn = $('bibleModeBtn');
+  const status = $('bibleModeStatus');
+  const card = btn?.closest('.bible-mode-card');
+
+  // Hero topbar button
+  const heroBtn = $('heroBibleModeBtn');
+  const heroStatus = $('heroBibleModeStatus');
+  const heroGroup = heroBtn?.closest('.hero-bible-group');
+
+  const isActive = !!currentEvent?.bibleMode;
+
+  // Update tab Dashboard
+  if (btn && status) {
+    if (isActive) {
+      btn.textContent = '✕ Resume Translation';
+      btn.classList.add('bible-active');
+      status.textContent = '📖 Reading from Bible — translation paused';
+      card?.classList.add('bible-mode-active');
+    } else {
+      btn.textContent = '📖 Read from Bible';
+      btn.classList.remove('bible-active');
+      status.textContent = 'Translation active';
+      card?.classList.remove('bible-mode-active');
+    }
+  }
+
+  // Update hero topbar
+  if (heroBtn && heroStatus) {
+    if (isActive) {
+      heroBtn.textContent = '✕ Resume';
+      heroBtn.classList.add('bible-active');
+      heroStatus.textContent = '📖 Reading from Bible';
+      heroGroup?.classList.add('hero-bible-active');
+    } else {
+      heroBtn.textContent = '📖 Read from Bible';
+      heroBtn.classList.remove('bible-active');
+      heroStatus.textContent = 'Translation active';
+      heroGroup?.classList.remove('hero-bible-active');
+    }
+  }
+}
+
+socket.on('bible_mode_changed', (payload) => {
+  if (currentEvent && currentEvent.id) {
+    currentEvent.bibleMode = !!payload.enabled;
+    if (payload.displayState) currentEvent.displayState = payload.displayState;
+    updateBibleModeUI();
+  }
+});
 
 document.addEventListener('keydown', (e) => {
   const target = e.target;
@@ -3289,6 +3688,8 @@ $('heroRestoreScreenBtn')?.addEventListener('click', async () => {
 $('heroStartRecognitionBtn')?.addEventListener('click', () => { $('startRecognitionBtn')?.click(); });
 $('heroStopRecognitionBtn')?.addEventListener('click', () => { $('stopRecognitionBtn')?.click(); });
 $('heroEndServiceBtn')?.addEventListener('click', () => { $('endServiceBtn')?.click(); });
+// BIBLE MODE V2: hero topbar button proxy
+$('heroBibleModeBtn')?.addEventListener('click', () => { $('bibleModeBtn')?.click(); });
 $('heroMuteGlobalBtn')?.addEventListener('click', () => { $('muteGlobalBtn')?.click(); });
 $('heroPanicBtn')?.addEventListener('click', () => { $('panicBtn')?.click(); });
 $('refreshEventsBtn').addEventListener('click', refreshEventList);
@@ -3411,17 +3812,19 @@ $('songClearBtn')?.addEventListener('click', async () => {
       return;
     }
     currentEvent = data.event || currentEvent;
-    currentEvent.mode = 'live';
+    // BUGFIX V2 FIX B: Clear merge la Black Screen (sigur), NU la Live Text.
+    // Vechi: `currentEvent.mode = 'live'` lăsa Main Screen pe Live Text (mod neobișnuit pentru proiector).
+    // Acum: forțăm Black Screen explicit. Admin trebuie să confirme manual dacă vrea Live Text (Feature 2 popup).
     renderSongState({});
-    refreshDisplayControls();
-    renderActiveEventBadge(currentEvent);
-    setStatus('Song cleared. Ready for next song.');
+    await blankMainScreen();
+    setStatus('Song cleared. Main screen set to black.');
   } catch (err) {
     alert(err.message || 'Could not clear song.');
   }
 });
 $('displayRestoreBtn').addEventListener('click', restoreLastDisplayState);
-  $('displayAutoBtn').addEventListener('click', () => setDisplayMode('auto'));
+  // FEATURE 2: Confirmare pentru Live Text (mod neobișnuit pentru Main Screen)
+  $('displayAutoBtn').addEventListener('click', () => setDisplayModeWithConfirmation('auto'));
   $('displayManualBtn').addEventListener('click', () => setDisplayMode('manual'));
   $('displaySongBtn').addEventListener('click', () => setDisplayMode('song'));
   $('displayThemeSelect').addEventListener('change', () => setDisplayTheme($('displayThemeSelect').value));
@@ -3501,6 +3904,57 @@ $('songBlocksList')?.addEventListener('change', async (e) => {
   if (!e.target.matches('[data-song-label-input]')) return;
   await saveSongLabels();
 });
+
+// FEATURE 6: Auto-titlu din prima linie scurtă la paste
+$('songText')?.addEventListener('paste', () => {
+  setTimeout(() => {
+    const titleEl = $('songTitle');
+    if (!titleEl) return;
+    const currentTitle = titleEl.value.trim();
+    // Doar dacă titlul e GOL (nu suprascrie)
+    if (currentTitle) return;
+    const text = $('songText').value.trim();
+    if (!text) return;
+    // Prima linie non-goală
+    let firstLine = text.split('\n').find((line) => line.trim().length > 0)?.trim() || '';
+
+    // BUGFIX V2 FIX A: cleanup prefix + suffix pentru titluri „1. Doamne...", „2) Slăvit fie..." etc.
+    // 1. Remove prefix: numere + punct/paranteză (ex „1.", „1)", „12.", „12)")
+    firstLine = firstLine.replace(/^\s*\d+[\.\)]\s*/, '');
+    // 2. Remove suffix: orice punctuație finală (. , ; : ! ?)
+    firstLine = firstLine.replace(/[\.\,\;\:\!\?]+\s*$/, '');
+    // 3. Trim spații extra (interne și marginale)
+    firstLine = firstLine.replace(/\s+/g, ' ').trim();
+
+    // Verifică dacă e probabil titlu (scurt, < 60 chars)
+    if (firstLine.length > 0 && firstLine.length < 60) {
+      titleEl.value = firstLine;
+      setStatus('Title auto-filled from first line.');
+    }
+  }, 50);
+});
+
+// FEATURE 5: Clear song editor button
+function clearSongEditor() {
+  if (typeof clearSong === 'function') {
+    clearSong();
+  } else {
+    $('songTitle').value = '';
+    $('songText').value = '';
+    if ($('songSourceLang')) $('songSourceLang').value = currentEvent?.sourceLang || 'ro';
+  }
+  setStatus('Editor cleared.');
+}
+$('clearSongEditorBtn')?.addEventListener('click', clearSongEditor);
+
+// FEATURE 3: Edit Live Verse handlers
+$('editLiveVerseBtn')?.addEventListener('click', openEditLiveVerseModal);
+$('cancelEditVerseBtn')?.addEventListener('click', closeEditLiveVerseModal);
+$('saveEditVerseBtn')?.addEventListener('click', () => saveEditedVerse(false));
+$('saveEditVerseLibraryBtn')?.addEventListener('click', () => saveEditedVerse(true));
+document.querySelectorAll('[data-edit-verse-close]').forEach((el) => {
+  el.addEventListener('click', closeEditLiveVerseModal);
+});
 $('globalSongLibraryList').addEventListener('click', async (e) => {
   const summary = e.target.closest('.library-card-summary');
   if (summary) return;
@@ -3517,8 +3971,14 @@ $('globalSongLibraryList').addEventListener('click', async (e) => {
   }
   if (action === 'send') {
     if (!currentEvent) return alert('Open or create an event first.');
-    fillSongEditor(item);
-    await sendSongItemToLive(item);
+    // FEATURE 7 BUGFIX: NU mai umplem editor-ul când trimitem la Live.
+    // Send la Live = action separat de Edit. Editor-ul rămâne curat pentru cântec NOU.
+    const ok = await sendSongItemToLive(item);
+    // V11.11: auto-close the expanded library card on successful Send so the operator
+    // can immediately search for the next song. Only close on success — on failure
+    // (network error, server error, missing event) the card stays open for retry.
+    // Other actions (load/add/delete) intentionally do NOT trigger auto-close.
+    if (ok) btn.closest('.library-card-details')?.removeAttribute('open');
     return;
   }
   if (action === 'add') {

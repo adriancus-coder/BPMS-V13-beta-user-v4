@@ -1,6 +1,7 @@
 function registerSocketHandlers(io, ctx) {
   const {
     LANGUAGE_NAMES_RO,
+    LANGUAGE_ENDONYMS,
     azureSpeechSessions,
     buildDisplayPayload,
     buildPublicOrganization,
@@ -175,6 +176,7 @@ function registerSocketHandlers(io, ctx) {
           ? { permissions: access.permissions || [], operator: normalizeSocketOperator(access.operator) }
           : null,
         languageNames: LANGUAGE_NAMES_RO,
+        languageEndonyms: LANGUAGE_ENDONYMS,
         organization: buildPublicOrganization(getOrganizationForEvent(event))
       });
     });

@@ -1,6 +1,9 @@
 const socket = io();
 const $ = (id) => document.getElementById(id);
 let availableLanguages = {};
+// V11.5: endonyms catalog (each language's name in its own language) — preferred over
+// availableLanguages on end-user-facing Main Screen cards. Falls back if server didn't send.
+let availableEndonyms = {};
 let mainScreenWakeLock = null;
 
 function escapeTextForHtml(text) {
@@ -57,7 +60,9 @@ if (params.has('code') && window.history && window.history.replaceState) {
 }
 
 function langLabel(code) {
-  return availableLanguages[code] || code.toUpperCase();
+  // V11.5: prefer endonym ("Norsk", "English") over RO name ("Norvegiană", "Engleză") on
+  // end-user UI. Falls through to availableLanguages if no endonym for the code.
+  return availableEndonyms[code] || availableLanguages[code] || code.toUpperCase();
 }
 
 function setStatus(text) {
@@ -212,8 +217,9 @@ function getTextToDisplay(language = state.currentLanguage) {
       return state.songState.activeBlock
         || 'Waiting for song text...';
     }
+    // BUGFIX V3: NU folosim activeBlock ca fallback (text original)
+    // pentru a evita afișarea textului românesc pe Main Screen când e altă limbă selectată
     return state.songState.translations?.[language]
-      || state.songState.activeBlock
       || 'Waiting for song translation...';
   }
   if (state.currentDisplayMode === 'manual') {
@@ -246,56 +252,89 @@ function updateMeta() {
 
 function fitDisplayTextElement(box, container, options = {}) {
   if (!box || !container) return;
+
+  // V11.7: Grow-to-fit algorithm via binary search. Previous shrink-to-fit started
+  // small (width/12) and only shrunk on overflow — short verses stopped at the
+  // initial small size, wasting card space. Now we search for the LARGEST size
+  // that fits both dimensions, so short verses naturally grow to fill the card.
+
+  // Reset inline styles from any previous fit pass.
+  box.style.fontSize = '';
+  box.style.lineHeight = '';
+  box.style.maxWidth = '';
+  box.style.maxHeight = '';
+  box.style.transform = '';
+  box.style.transformOrigin = '';
+
+  // Available space = container clientW/H minus its CSS padding minus reserveHeight
+  // (room for sibling labels above the text). Magic `-28`/`-20` buffers from the
+  // shrink-to-fit era removed — binary search detects overflow precisely via
+  // scrollWidth/scrollHeight, no slack buffer needed.
   const containerStyle = window.getComputedStyle(container);
   const paddingX = (parseFloat(containerStyle.paddingLeft) || 0) + (parseFloat(containerStyle.paddingRight) || 0);
   const paddingY = (parseFloat(containerStyle.paddingTop) || 0) + (parseFloat(containerStyle.paddingBottom) || 0);
-  const availableWidth = Math.max(container.clientWidth - paddingX - 28, 180);
-  const availableHeight = Math.max(container.clientHeight - paddingY - (options.reserveHeight || 0) - 20, 120);
-  box.style.fontSize = '';
-  box.style.lineHeight = '';
-  box.style.maxWidth = `${availableWidth}px`;
-  box.style.maxHeight = `${availableHeight}px`;
-  box.style.transform = '';
-  box.style.transformOrigin = 'center center';
-  let size = Math.min(Math.max(Math.floor(availableWidth / (options.dense ? 12 : 11)), 24), options.maxSize || 130);
-  const sizeMode = state.textSize || 'large';
-  if (sizeMode === 'compact') size = Math.round(size * 0.78);
-  if (sizeMode === 'xlarge') size = Math.round(size * 1.18);
-  if (sizeMode === 'huge') size = Math.round(size * 1.4);
+  const reserveHeight = options.reserveHeight ?? 20;
+  const availableWidth = Math.max(container.clientWidth - paddingX, 120);
+  const availableHeight = Math.max(container.clientHeight - paddingY - reserveHeight, 80);
+  if (availableWidth <= 0 || availableHeight <= 0) return;
+
+  box.style.maxWidth = availableWidth + 'px';
+  box.style.maxHeight = availableHeight + 'px';
+
+  // V11.7: respect user's textSize preset + custom textScale by scaling the search
+  // cap. These multipliers were applied to starting size in shrink-to-fit;
+  // preserve them in grow-to-fit by scaling the upper search bound. Without this
+  // the compact/large/xlarge/huge buttons + scale slider would become no-ops.
+  const sizeModeMult = ({ compact: 0.78, large: 1.0, xlarge: 1.18, huge: 1.4 })[state.textSize || 'large'] ?? 1.0;
   const manualScale = Math.min(1.3, Math.max(0.65, Number(state.textScale || 1)));
-  const maxSize = Math.round((options.maxSize || 130) * 1.3);
-  size = Math.round(size * manualScale);
-  size = Math.min(Math.max(size, 18), maxSize);
-  box.style.fontSize = `${size}px`;
-  box.style.lineHeight = size <= 42 ? '1.04' : size <= 64 ? '1.08' : '1.12';
+  const baseCap = Math.min(options.maxSize ?? 220, 220);   // V11.7: absolute cap 220px
+  const effectiveCap = Math.round(baseCap * sizeModeMult * manualScale);
+  const minSize = 18;
+  // hi guaranteed >= minSize even when multipliers compound aggressively
+  // (current min: 220 * 0.78 * 0.65 = ~112, still well above 18 — but defensive).
+  const lo0 = minSize;
+  const hi0 = Math.max(effectiveCap, minSize);
 
-  while (size > 14 && (box.scrollHeight > availableHeight || box.scrollWidth > availableWidth)) {
-    size -= 2;
-    box.style.fontSize = `${size}px`;
-    box.style.lineHeight = size <= 30 ? '1' : size <= 42 ? '1.04' : size <= 64 ? '1.08' : '1.12';
-  }
+  // V11.7: Binary search for the largest size that fits both dimensions.
+  // Converges in ~log2(hi0 - lo0) ≈ 8 iterations. Each iteration triggers reflow
+  // via scrollWidth/scrollHeight reads; total cost ~3-5ms per fit call.
+  let lo = lo0;
+  let hi = hi0;
+  let best = minSize;
 
-  if (box.scrollHeight > availableHeight || box.scrollWidth > availableWidth) {
-    let compressedLineHeight = 0.98;
-    while (compressedLineHeight >= 0.88 && (box.scrollHeight > availableHeight || box.scrollWidth > availableWidth)) {
-      box.style.lineHeight = compressedLineHeight.toFixed(2);
-      compressedLineHeight -= 0.02;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    box.style.fontSize = mid + 'px';
+    box.style.lineHeight = mid <= 30 ? '1.0' : mid <= 42 ? '1.04' : mid <= 64 ? '1.08' : '1.12';
+
+    const overflowsWidth = box.scrollWidth > availableWidth + 1;   // +1 tolerance for sub-pixel
+    const overflowsHeight = box.scrollHeight > availableHeight + 1;
+    if (overflowsWidth || overflowsHeight) {
+      hi = mid - 1;
+    } else {
+      best = mid;
+      lo = mid + 1;
     }
   }
 
-  const heightRatio = availableHeight / Math.max(box.scrollHeight, 1);
-  const widthRatio = availableWidth / Math.max(box.scrollWidth, 1);
-  const ratio = Math.min(heightRatio, widthRatio, 1);
-  if (ratio < 1) {
-    box.style.transform = `scale(${Math.max(ratio, 0.72).toFixed(3)})`;
-  }
+  box.style.fontSize = best + 'px';
+  box.style.lineHeight = best <= 30 ? '1.0' : best <= 42 ? '1.04' : best <= 64 ? '1.08' : '1.12';
+
+  // V11.7: NO transform scale fallback (was: scale(0.72-1.0) when even minSize
+  // overflowed after line-height compression). With grow-to-fit, if minSize=18
+  // still overflows, text wraps/clips naturally — better than scale-shrinking
+  // below readability threshold. options.dense kept as noop for backward compat
+  // with applyDualTextScale call sites (V11.6 passed dense: true).
 }
 
 function applyDualTextScale() {
   const dual = $('translateDualText');
   if (!dual) return;
 
-  // Reset inline styles ca fitting-ul să pornească curat la fiecare update.
+  // V11.6: Reset inline styles so fitting starts clean on each update.
+  // Selector matches all dual-text elements; we only act on primary/secondary
+  // below, but resetting the class globally is safe (idempotent) and defensive
+  // against any future card variants on the same screen.
   document.querySelectorAll('.unified-display-language-text').forEach((el) => {
     el.style.fontSize = '';
     el.style.lineHeight = '';
@@ -304,31 +343,66 @@ function applyDualTextScale() {
     el.style.maxHeight = '';
   });
 
-  // Variabila CSS rămâne pentru stiluri externe care o pot citi; fitting-ul real
-  // se face mai jos prin fitDisplayTextElement, care folosește state.textScale intern.
   const scale = Math.min(1.3, Math.max(0.65, Number(state.textScale || 1)));
   dual.style.setProperty('--dual-text-scale', String(scale));
 
-  // Fitting auto independent pe fiecare card. Card-urile dual au ~50% lățime ecran,
-  // deci maxSize coboară de la 130 (single) la 100. reserveHeight=60 pentru label.
   const primaryText = $('translatePrimaryText');
   const secondaryText = $('translateSecondaryText');
   const primaryCard = primaryText?.parentElement;
   const secondaryCard = secondaryText?.parentElement;
-  if (primaryText && primaryCard) {
-    fitDisplayTextElement(primaryText, primaryCard, {
-      reserveHeight: 60,
-      maxSize: 100,
-      dense: true
-    });
+  if (!primaryText || !primaryCard || !secondaryText || !secondaryCard) return;
+
+  // V11.6 Pass 1: fit each card independently to discover natural size.
+  // V11.7: maxSize 100 → 220 to let pass 1 discover real natural max with grow-to-fit
+  //        (shrink-to-fit era's 100 was a starting-size cap; grow-to-fit needs upper search bound).
+  //        reserveHeight 60 → 20 reduces wasted vertical padding (header label is small).
+  fitDisplayTextElement(primaryText, primaryCard, { reserveHeight: 20, maxSize: 220, dense: true });
+  fitDisplayTextElement(secondaryText, secondaryCard, { reserveHeight: 20, maxSize: 220, dense: true });
+
+  // V11.6 Pass 2: read effective sizes (fontSize × transform scale if applied),
+  // take min. Skip sync if cards are already balanced (within 0.5px).
+  const sizeA = readEffectiveFontSize(primaryText);
+  const sizeB = readEffectiveFontSize(secondaryText);
+  if (Math.abs(sizeA - sizeB) < 0.5) return;
+
+  // V11.6 Pass 3: re-fit BOTH with the smaller size as cap. The larger card
+  // shrinks down to match; the smaller card's transform scale (if any) is
+  // re-evaluated — cleared if no longer needed at the new fontSize.
+  const finalSize = Math.min(sizeA, sizeB);
+  resetTextStyles(primaryText);
+  resetTextStyles(secondaryText);
+  // V11.7: reserveHeight 60 → 20 — consistent with pass 1.
+  fitDisplayTextElement(primaryText, primaryCard, { reserveHeight: 20, maxSize: finalSize, dense: true });
+  fitDisplayTextElement(secondaryText, secondaryCard, { reserveHeight: 20, maxSize: finalSize, dense: true });
+}
+
+// V11.6 helper: clear inline overrides set by fitDisplayTextElement.
+function resetTextStyles(el) {
+  if (!el) return;
+  el.style.fontSize = '';
+  el.style.lineHeight = '';
+  el.style.transform = '';
+  el.style.maxWidth = '';
+  el.style.maxHeight = '';
+}
+
+// V11.6 helper: combine inline fontSize with transform scale (if any) from
+// fitDisplayTextElement's final fallback. Parses matrix(a, b, c, d, tx, ty)
+// where uniform scale produces a === d === scale factor. Returns visual size
+// in CSS pixels.
+function readEffectiveFontSize(el) {
+  if (!el) return 0;
+  const cs = window.getComputedStyle(el);
+  const fontSize = parseFloat(cs.fontSize) || 0;
+  const transform = cs.transform || '';
+  const m = transform.match(/matrix\(([^)]+)\)/);
+  if (m) {
+    const parts = m[1].split(',').map(s => parseFloat(s.trim()));
+    if (parts.length >= 4 && Number.isFinite(parts[0])) {
+      return fontSize * parts[0];
+    }
   }
-  if (secondaryText && secondaryCard) {
-    fitDisplayTextElement(secondaryText, secondaryCard, {
-      reserveHeight: 60,
-      maxSize: 100,
-      dense: true
-    });
-  }
+  return fontSize;
 }
 
 function autoFitText() {
@@ -432,8 +506,9 @@ socket.on('connect', async () => {
 
 socket.on('disconnect', () => setStatus('Reconnecting...'));
 
-socket.on('joined_event', ({ event, languageNames }) => {
+socket.on('joined_event', ({ event, languageNames, languageEndonyms }) => {
   if (languageNames) availableLanguages = languageNames;
+  if (languageEndonyms) availableEndonyms = languageEndonyms;
   state.currentEvent = event;
   state.currentDisplayMode = event.displayState?.mode || 'auto';
   state.currentTheme = event.displayState?.theme || 'dark';
@@ -620,6 +695,7 @@ window.addEventListener('load', async () => {
     const res = await fetch('/api/languages');
     const data = await res.json();
     availableLanguages = data.languages || {};
+    availableEndonyms = data.languageEndonyms || {};
   } catch (_) {}
   updateClock();
   window.setInterval(updateClock, 1000);
