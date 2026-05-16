@@ -530,7 +530,7 @@ function refreshDisplayControls() {
   }
   if (clockScaleInput) {
     const scale = Number(currentEvent?.displayState?.clockScale || 1);
-    clockScaleInput.value = String(Math.min(2, Math.max(0.7, scale)));
+    clockScaleInput.value = String(Math.min(2.5, Math.max(0.7, scale)));
   }
   if (clockScaleValue) {
     const scale = Number(clockScaleInput?.value || currentEvent?.displayState?.clockScale || 1);
@@ -1821,7 +1821,7 @@ async function adjustClockScale(delta) {
   const input = $('displayClockScaleInput');
   if (!input) return;
   const current = Number(input.value || currentEvent?.displayState?.clockScale || 1);
-  const next = Math.min(2, Math.max(0.7, Math.round((current + delta) * 10) / 10));
+  const next = Math.min(2.5, Math.max(0.7, Math.round((current + delta) * 10) / 10));
   input.value = String(next);
   if ($('displayClockScaleValue')) $('displayClockScaleValue').textContent = `${Math.round(next * 100)}%`;
   await applyDisplayPartial({ clockScale: next });
