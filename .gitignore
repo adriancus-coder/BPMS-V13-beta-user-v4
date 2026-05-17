@@ -1,6 +1,23 @@
 node_modules/
 data/
 logs/
+# Environment files (all variants)
 .env
+.env.*
+!.env.example
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor cruft
+*.swp
+.idea/
+.vscode/
+
+# Build artifacts (precaution)
+dist/
+build/
+*.log
 .claude/
 yarn.lock
