@@ -1407,7 +1407,7 @@ async function importRemoteSongFromUrl(url) {
   const res = await fetch('/api/songs/import-url', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url })
+    body: JSON.stringify({ url, code: state.accessCode, eventId: state.eventId })
   });
   const data = await res.json();
   if (!res.ok || !data.ok) throw new Error(data.error || 'Import failed');
@@ -1459,7 +1459,7 @@ $('remoteImportUrlBtn')?.addEventListener('click', async () => {
       const res = await fetch('/api/songs/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: value })
+        body: JSON.stringify({ query: value, code: state.accessCode, eventId: state.eventId })
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || 'Search failed');

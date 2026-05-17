@@ -609,12 +609,21 @@ function requireAdminApiSession(req, res) {
   return false;
 }
 
-// V19: song import/search are also reachable by a logged-in remote operator.
-// An operator never gets an admin session, so accept a valid operator PIN cookie too.
+// V19: song import/search are reachable by admins, by a logged-in operator
+// (operator-PIN session cookie), and by a remote operator authenticated with an
+// event access code. The /remote page carries that code in `state.accessCode`
+// (not an operator session), so accept a code that resolves to admin/screen.
 function requireAdminOrOperatorApiSession(req, res) {
   if (hasValidAdminSession(req)) return true;
   const operatorCode = getOperatorCodeFromCookie(req);
   if (operatorCode && isOperatorPinValid(operatorCode)) return true;
+  const suppliedCode = String(req.body?.code || '').trim();
+  const eventId = String(req.body?.eventId || '').trim();
+  const event = eventId ? db.events[eventId] : null;
+  if (event && suppliedCode) {
+    const access = resolveEventAccessFromCode(event, suppliedCode);
+    if (access.role === 'admin' || access.role === 'screen') return true;
+  }
   res.status(401).json({ ok: false, error: 'Admin or operator login required.' });
   return false;
 }
