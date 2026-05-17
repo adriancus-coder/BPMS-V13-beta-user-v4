@@ -1539,6 +1539,7 @@ function renderGlobalSongLibrary(items = []) {
       <div class="library-card-body">
         <div class="small"><b>Language:</b> ${escapeHtml(langLabel(item.sourceLang || currentEvent?.sourceLang || 'ro'))}</div>
         <div class="library-card-actions">
+          <button class="btn btn-dark" data-global-song-action="preview" data-global-song-id="${item.id}">Preview</button>
           <button class="btn btn-dark" data-global-song-action="load" data-global-song-id="${item.id}">Load in editor</button>
           <button class="btn btn-primary" data-global-song-action="send" data-global-song-id="${item.id}">Send first verse</button>
           <span class="add-event-split">
@@ -1548,6 +1549,9 @@ function renderGlobalSongLibrary(items = []) {
             </select>
           </span>
           <button class="btn btn-danger" data-global-song-action="delete" data-global-song-id="${item.id}">🗑 Delete</button>
+        </div>
+        <div class="library-preview hidden" data-global-song-preview="${item.id}">
+          <pre class="library-preview-text">${escapeHtml(item.text || '')}</pre>
         </div>
       </div>
     </details>
@@ -1572,9 +1576,13 @@ function renderPinnedTextLibrary(items = []) {
         <div class="small"><b>Language:</b> ${escapeHtml(langLabel(item.sourceLang || currentEvent?.sourceLang || 'ro'))}</div>
         <div class="small">${escapeHtmlWithBreaks(String(item.text || '').slice(0, 240))}${String(item.text || '').length > 240 ? '...' : ''}</div>
         <div class="actions">
+          <button class="btn btn-dark" type="button" data-manual-library-action="preview" data-manual-library-id="${item.id}">Preview</button>
           <button class="btn btn-dark" type="button" data-manual-library-action="load" data-manual-library-id="${item.id}">Load in editor</button>
           <button class="btn btn-primary" type="button" data-manual-library-action="send" data-manual-library-id="${item.id}">Send to main screen</button>
           <button class="btn btn-danger" type="button" data-manual-library-action="delete" data-manual-library-id="${item.id}">🗑 Delete</button>
+        </div>
+        <div class="library-preview hidden" data-manual-library-preview="${item.id}">
+          <pre class="library-preview-text">${escapeHtml(item.text || '')}</pre>
         </div>
       </div>
     </details>
@@ -4030,6 +4038,14 @@ $('globalSongLibraryList').addEventListener('click', async (e) => {
   const songId = btn.getAttribute('data-global-song-id');
   const item = currentGlobalSongLibrary.find((x) => x.id === songId);
   if (!item) return;
+  if (action === 'preview') {
+    const previewEl = document.querySelector(`[data-global-song-preview="${songId}"]`);
+    if (previewEl) {
+      previewEl.classList.toggle('hidden');
+      btn.textContent = previewEl.classList.contains('hidden') ? 'Preview' : 'Hide preview';
+    }
+    return;
+  }
   if (action === 'load') {
     fillSongEditor(item);
     setStatus('Loaded from church library.');
@@ -4117,6 +4133,14 @@ $('manualLibraryList')?.addEventListener('click', async (e) => {
   const itemId = btn.getAttribute('data-manual-library-id');
   const item = currentPinnedTextLibrary.find((entry) => entry.id === itemId);
   if (!item) return;
+  if (action === 'preview') {
+    const previewEl = document.querySelector(`[data-manual-library-preview="${itemId}"]`);
+    if (previewEl) {
+      previewEl.classList.toggle('hidden');
+      btn.textContent = previewEl.classList.contains('hidden') ? 'Preview' : 'Hide preview';
+    }
+    return;
+  }
   if (action === 'load') {
     if ($('manualTitle')) $('manualTitle').value = item.title || '';
     $('manualText').value = item.text || '';
