@@ -3970,6 +3970,49 @@ function clearSongEditor() {
 }
 $('clearSongEditorBtn')?.addEventListener('click', clearSongEditor);
 
+// V16: Import song from URL
+$('importUrlBtn')?.addEventListener('click', async () => {
+  const input = $('importUrlInput');
+  const status = $('importUrlStatus');
+  const btn = $('importUrlBtn');
+  const url = (input?.value || '').trim();
+
+  if (!url) {
+    status.textContent = 'Introdu un URL valid.';
+    status.style.color = '#f80';
+    return;
+  }
+
+  status.textContent = 'Se importă...';
+  status.style.color = '';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/songs/import-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || 'Import failed');
+    }
+
+    if ($('songTitle') && data.song.title) $('songTitle').value = data.song.title;
+    if ($('songText') && data.song.text) $('songText').value = data.song.text;
+
+    status.textContent = `Importat: "${data.song.title}" (${data.song.sourceProvider})`;
+    status.style.color = '#0c0';
+    input.value = '';
+  } catch (err) {
+    status.textContent = `Eroare: ${err.message}`;
+    status.style.color = '#f00';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 // FEATURE 3: Edit Live Verse handlers
 $('editLiveVerseBtn')?.addEventListener('click', openEditLiveVerseModal);
 $('cancelEditVerseBtn')?.addEventListener('click', closeEditLiveVerseModal);

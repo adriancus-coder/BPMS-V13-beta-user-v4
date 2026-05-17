@@ -20,6 +20,7 @@ const { registerAdminRoutes } = require('./routes/admin');
 const { registerOrgRoutes } = require('./routes/org');
 const { registerEventRoutes } = require('./routes/events');
 const { registerSocketHandlers } = require('./socket/handlers');
+const { importFromUrl } = require('./routes/admin-import');
 require('dotenv').config();
 
 const SECURE_CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
@@ -4714,6 +4715,23 @@ app.get('/api/admin/audit-log', (req, res) => {
   const limit = Math.max(1, Math.min(500, Number(req.query?.limit) || 100));
   const entries = [...log].slice(-limit).reverse();
   res.json({ ok: true, entries });
+});
+
+// V16: Import a song from an external URL (resursecrestine.ro Opensong XML)
+app.post('/api/songs/import-url', async (req, res) => {
+  if (!requireAdminApiSession(req, res)) return;
+  const { url } = req.body || {};
+  if (!url || typeof url !== 'string') {
+    return res.status(400).json({ ok: false, error: 'Missing url in request body' });
+  }
+  try {
+    const imported = await importFromUrl(url.trim());
+    logger.info(`[import-url] Imported from ${imported.sourceProvider}: "${imported.title}"`);
+    return res.json({ ok: true, song: imported });
+  } catch (err) {
+    logger.warn(`[import-url] Failed: ${err.message}`);
+    return res.status(400).json({ ok: false, error: err.message });
+  }
 });
 
 app.post('/api/admin/push-subscribe', (req, res) => {
