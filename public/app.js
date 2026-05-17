@@ -321,6 +321,22 @@ function normalizeForSearch(str) {
     .replace(/[̀-ͯ]/g, '');
 }
 
+// V18.1: Check if imported song matches existing library entry (by normalized title)
+// Returns the matching item from currentGlobalSongLibrary, or null.
+function findDuplicateLibrarySong(title) {
+  if (!title || typeof title !== 'string') return null;
+  if (!Array.isArray(currentGlobalSongLibrary) || !currentGlobalSongLibrary.length) return null;
+
+  const normalizedNew = normalizeForSearch(title.trim());
+  if (!normalizedNew) return null;
+
+  return currentGlobalSongLibrary.find((item) => {
+    const itemTitle = String(item?.title || '').trim();
+    if (!itemTitle) return false;
+    return normalizeForSearch(itemTitle) === normalizedNew;
+  }) || null;
+}
+
 function filterAndSortLibrary(items = [], searchId, sortId) {
   const query = normalizeForSearch(($(searchId)?.value || '').trim());
   const sortMode = $(sortId)?.value || 'az';
@@ -3989,6 +4005,19 @@ async function importSongFromUrl(url) {
   if (!res.ok || !data.ok) {
     throw new Error(data.error || 'Import failed');
   }
+
+  // V18.1: warn if a song with the same normalized title already exists in the library
+  const dup = findDuplicateLibrarySong(data.song.title);
+  if (dup) {
+    const author = dup.author ? ` (autor: ${dup.author})` : '';
+    const ok = confirm(`Cântarea există deja în Library: "${dup.title}"${author}.\n\nContinui oricum și suprascrii editorul?`);
+    if (!ok) {
+      const err = new Error(`Anulat — cântarea există deja: "${dup.title}"`);
+      err.cancelled = true;
+      throw err;
+    }
+  }
+
   if ($('songTitle') && data.song.title) $('songTitle').value = data.song.title;
   if ($('songText') && data.song.text) $('songText').value = data.song.text;
   return data.song;
@@ -4049,10 +4078,23 @@ $('importUrlBtn')?.addEventListener('click', async () => {
       }
     }
   } catch (err) {
-    status.textContent = `Eroare: ${err.message}`;
-    status.style.color = '#f00';
+    if (err.cancelled) {
+      status.textContent = err.message;
+      status.style.color = '#f80';
+    } else {
+      status.textContent = `Eroare: ${err.message}`;
+      status.style.color = '#f00';
+    }
   } finally {
     btn.disabled = false;
+  }
+});
+
+// V18.1: Enter declanșează butonul Import / Caută
+$('importUrlInput')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    $('importUrlBtn')?.click();
   }
 });
 
@@ -4078,8 +4120,13 @@ $('importUrlResults')?.addEventListener('click', async (e) => {
     if (input) input.value = '';
     if (resultsEl) resultsEl.innerHTML = '';
   } catch (err) {
-    status.textContent = `Eroare la import: ${err.message}`;
-    status.style.color = '#f00';
+    if (err.cancelled) {
+      status.textContent = err.message;
+      status.style.color = '#f80';
+    } else {
+      status.textContent = `Eroare la import: ${err.message}`;
+      status.style.color = '#f00';
+    }
     btn.disabled = false;
     btn.textContent = 'Import';
   }
