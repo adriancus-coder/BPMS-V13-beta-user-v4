@@ -118,7 +118,96 @@ async function importFromUrl(url) {
   throw new Error(`Unsupported URL. Currently supported: ${RESURSE_CRESTINE_HOST}/cantece/<id>/...`);
 }
 
+const RESURSE_CRESTINE_SEARCH_BASE = `https://${RESURSE_CRESTINE_HOST}/web-api-search`;
+
+/**
+ * Search songs on resursecrestine.ro by title using their official public API.
+ * Documented at https://www.resursecrestine.ro/web-api
+ *
+ * search_in=2 scopes the search to "cantece" (songs); other values return
+ * Bible verses etc. Response shape (verified): { "Results": [ { id, title,
+ * title_slug, author, kind, slug } ] } where slug is the category ("cantece").
+ *
+ * Returns array of { id, title, author, url } (max 20 results).
+ * Throws on network/parse errors.
+ */
+async function searchResurseCrestineSongs(query) {
+  const trimmed = String(query || '').trim();
+  if (!trimmed) {
+    throw new Error('Empty search query');
+  }
+  if (trimmed.length < 2) {
+    throw new Error('Search query too short (min 2 chars)');
+  }
+
+  const url = new URL(RESURSE_CRESTINE_SEARCH_BASE);
+  url.searchParams.set('search_text', trimmed);
+  url.searchParams.set('search_in', '2');            // 2 = cantece (songs)
+  url.searchParams.set('search_by', 'filtru-titlu'); // search in title only
+  url.searchParams.set('output', 'json2');
+
+  let res;
+  try {
+    res = await fetch(url.toString(), {
+      headers: {
+        'User-Agent': 'SanctuaryVoice/1.0 (church translation app)',
+        'Accept': 'application/json',
+      },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+  } catch (err) {
+    if (err.name === 'TimeoutError') {
+      throw new Error('Search timed out (resursecrestine.ro did not respond)');
+    }
+    throw new Error(`Search request failed: ${err.message}`);
+  }
+
+  if (!res.ok) {
+    throw new Error(`Search request failed: ${res.status} ${res.statusText}`);
+  }
+
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (err) {
+    throw new Error(`Search response parse error: ${err.message}`);
+  }
+
+  let items = [];
+  if (Array.isArray(data?.Results)) {
+    items = data.Results;
+  } else if (Array.isArray(data?.results)) {
+    items = data.results;
+  } else if (Array.isArray(data)) {
+    items = data;
+  } else {
+    throw new Error(`Unexpected response shape (keys: ${Object.keys(data || {}).join(', ') || 'none'})`);
+  }
+
+  // Keep only numeric song ids in the "cantece" category — those are the ones
+  // that yield importable /cantece/<id>/<slug> URLs for the V16 import flow.
+  return items
+    .map((item) => ({
+      id: String(item.id || '').trim(),
+      title: String(item.title || '').trim(),
+      author: String(item.author || '').trim(),
+      titleSlug: String(item.title_slug || '').trim(),
+      category: String(item.slug || '').trim(),
+    }))
+    .filter((item) => item.id && /^\d+$/.test(item.id) && item.title && item.category === 'cantece')
+    .slice(0, 20)
+    .map((item) => ({
+      id: item.id,
+      title: item.title,
+      author: item.author,
+      url: `https://${RESURSE_CRESTINE_HOST}/cantece/${item.id}/${item.titleSlug || 'cantec'}`,
+    }));
+}
+
 module.exports = {
   importFromUrl,
   extractResurseCrestineSongId,
+  searchResurseCrestineSongs,
 };

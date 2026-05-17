@@ -639,12 +639,13 @@
               </summary>
               <div class="song-editor-body">
                 <div class="import-from-url-row" style="margin-bottom: 12px;">
-                  <label>Import din URL (resursecrestine.ro)</label>
+                  <label>Import din URL sau Caută pe resursecrestine.ro</label>
                   <div style="display: flex; gap: 8px;">
-                    <input id="importUrlInput" type="url" placeholder="https://www.resursecrestine.ro/cantece/..." style="flex: 1;">
-                    <button id="importUrlBtn" class="btn btn-primary" type="button">Import</button>
+                    <input id="importUrlInput" type="text" placeholder="URL cântec sau cuvinte cheie (ex: pâinea vieții)" style="flex: 1;">
+                    <button id="importUrlBtn" class="btn btn-primary" type="button">Import / Caută</button>
                   </div>
                   <div id="importUrlStatus" class="muted" style="margin-top: 4px; min-height: 1em;"></div>
+                  <div id="importUrlResults" class="import-url-results" style="margin-top: 8px;"></div>
                 </div>
                 <label>Title</label>
                 <input id="songTitle" type="text" placeholder="Amazing Grace">

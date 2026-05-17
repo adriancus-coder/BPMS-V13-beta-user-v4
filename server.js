@@ -20,7 +20,7 @@ const { registerAdminRoutes } = require('./routes/admin');
 const { registerOrgRoutes } = require('./routes/org');
 const { registerEventRoutes } = require('./routes/events');
 const { registerSocketHandlers } = require('./socket/handlers');
-const { importFromUrl } = require('./routes/admin-import');
+const { importFromUrl, searchResurseCrestineSongs } = require('./routes/admin-import');
 require('dotenv').config();
 
 const SECURE_CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
@@ -4730,6 +4730,22 @@ app.post('/api/songs/import-url', async (req, res) => {
     return res.json({ ok: true, song: imported });
   } catch (err) {
     logger.warn(`[import-url] Failed: ${err.message}`);
+    return res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/songs/search', async (req, res) => {
+  if (!requireAdminApiSession(req, res)) return;
+  const { query } = req.body || {};
+  if (!query || typeof query !== 'string') {
+    return res.status(400).json({ ok: false, error: 'Missing query in request body' });
+  }
+  try {
+    const results = await searchResurseCrestineSongs(query.trim());
+    logger.info(`[songs/search] query="${query.trim()}" -> ${results.length} results`);
+    return res.json({ ok: true, query: query.trim(), results });
+  } catch (err) {
+    logger.warn(`[songs/search] Failed: ${err.message}`);
     return res.status(400).json({ ok: false, error: err.message });
   }
 });

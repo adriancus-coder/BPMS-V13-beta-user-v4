@@ -1540,10 +1540,10 @@ function renderGlobalSongLibrary(items = []) {
         <div class="small"><b>Language:</b> ${escapeHtml(langLabel(item.sourceLang || currentEvent?.sourceLang || 'ro'))}</div>
         <div class="library-card-actions">
           <button class="btn btn-dark" data-global-song-action="preview" data-global-song-id="${item.id}">Preview</button>
-          <button class="btn btn-dark" data-global-song-action="load" data-global-song-id="${item.id}">Load in editor</button>
+          <button class="btn btn-dark" data-global-song-action="load" data-global-song-id="${item.id}">Edit</button>
           <button class="btn btn-primary" data-global-song-action="send" data-global-song-id="${item.id}">Send first verse</button>
           <span class="add-event-split">
-            <button class="btn btn-dark add-event-btn" data-global-song-action="add" data-global-song-id="${item.id}">Add to event</button>
+            <button class="btn btn-dark add-event-btn" data-global-song-action="add" data-global-song-id="${item.id}">Add to...</button>
             <select class="add-event-select" aria-label="Choose event to add this song to" data-global-song-target="${item.id}">
               ${getTargetEventChoices(selectedEventId)}
             </select>
@@ -3978,46 +3978,110 @@ function clearSongEditor() {
 }
 $('clearSongEditorBtn')?.addEventListener('click', clearSongEditor);
 
-// V16: Import song from URL
+// V16 + V18: Smart import — URL imports directly, free text searches resursecrestine.ro
+async function importSongFromUrl(url) {
+  const res = await fetch('/api/songs/import-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url })
+  });
+  const data = await res.json();
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error || 'Import failed');
+  }
+  if ($('songTitle') && data.song.title) $('songTitle').value = data.song.title;
+  if ($('songText') && data.song.text) $('songText').value = data.song.text;
+  return data.song;
+}
+
 $('importUrlBtn')?.addEventListener('click', async () => {
   const input = $('importUrlInput');
   const status = $('importUrlStatus');
+  const resultsEl = $('importUrlResults');
   const btn = $('importUrlBtn');
-  const url = (input?.value || '').trim();
+  const value = (input?.value || '').trim();
 
-  if (!url) {
-    status.textContent = 'Introdu un URL valid.';
+  if (!value) {
+    status.textContent = 'Introdu un URL sau cuvinte cheie pentru căutare.';
     status.style.color = '#f80';
     return;
   }
 
-  status.textContent = 'Se importă...';
+  const isUrl = /^https?:\/\//i.test(value);
+  status.textContent = isUrl ? 'Se importă...' : 'Se caută...';
   status.style.color = '';
+  if (resultsEl) resultsEl.innerHTML = '';
   btn.disabled = true;
 
   try {
-    const res = await fetch('/api/songs/import-url', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url })
-    });
-    const data = await res.json();
-
-    if (!res.ok || !data.ok) {
-      throw new Error(data.error || 'Import failed');
+    if (isUrl) {
+      const song = await importSongFromUrl(value);
+      status.textContent = `Importat: "${song.title}" (${song.sourceProvider})`;
+      status.style.color = '#0c0';
+      input.value = '';
+    } else {
+      const res = await fetch('/api/songs/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: value })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'Search failed');
+      }
+      if (!data.results || !data.results.length) {
+        status.textContent = `Niciun rezultat pentru "${value}".`;
+        status.style.color = '#f80';
+        return;
+      }
+      status.textContent = `${data.results.length} rezultate pentru "${value}":`;
+      status.style.color = '#0c0';
+      if (resultsEl) {
+        resultsEl.innerHTML = data.results.map((item) => `
+          <div class="import-result-row" style="display: flex; gap: 8px; align-items: center; padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-weight: 600;">${escapeHtml(item.title)}</div>
+              <div class="muted small">${escapeHtml(item.author || 'Anonim')}</div>
+            </div>
+            <button class="btn btn-dark" type="button" data-import-result-url="${escapeHtml(item.url)}">Import</button>
+          </div>
+        `).join('');
+      }
     }
-
-    if ($('songTitle') && data.song.title) $('songTitle').value = data.song.title;
-    if ($('songText') && data.song.text) $('songText').value = data.song.text;
-
-    status.textContent = `Importat: "${data.song.title}" (${data.song.sourceProvider})`;
-    status.style.color = '#0c0';
-    input.value = '';
   } catch (err) {
     status.textContent = `Eroare: ${err.message}`;
     status.style.color = '#f00';
   } finally {
     btn.disabled = false;
+  }
+});
+
+// V18: Import a song picked from the search results list
+$('importUrlResults')?.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-import-result-url]');
+  if (!btn) return;
+
+  const url = btn.dataset.importResultUrl;
+  const status = $('importUrlStatus');
+  const input = $('importUrlInput');
+  const resultsEl = $('importUrlResults');
+
+  status.textContent = 'Se importă rezultatul selectat...';
+  status.style.color = '';
+  btn.disabled = true;
+  btn.textContent = '...';
+
+  try {
+    const song = await importSongFromUrl(url);
+    status.textContent = `Importat: "${song.title}"`;
+    status.style.color = '#0c0';
+    if (input) input.value = '';
+    if (resultsEl) resultsEl.innerHTML = '';
+  } catch (err) {
+    status.textContent = `Eroare la import: ${err.message}`;
+    status.style.color = '#f00';
+    btn.disabled = false;
+    btn.textContent = 'Import';
   }
 });
 
