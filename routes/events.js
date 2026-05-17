@@ -1687,7 +1687,10 @@ function registerEventRoutes(app, ctx) {
   app.post('/api/events/:id/global-song-library/:songId/add-to-event', (req, res) => {
     const adminEvent = db.events[req.params.id];
     if (!adminEvent) return res.status(404).json({ ok: false, error: 'Eveniment inexistent.' });
-    if (!requireEventAdmin(req, res, adminEvent)) return;
+    // V19: remote operators (role 'screen') with the 'song' permission may add a
+    // church-library song to their event. Delete stays admin-only.
+    if (!requireEventRole(req, res, adminEvent, ['admin', 'screen'])) return;
+    if (!requireEventPermission(req, res, 'song')) return;
 
     const targetEventId = String(req.body?.targetEventId || req.params.id || '').trim();
     const event = db.events[targetEventId];

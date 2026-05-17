@@ -609,6 +609,16 @@ function requireAdminApiSession(req, res) {
   return false;
 }
 
+// V19: song import/search are also reachable by a logged-in remote operator.
+// An operator never gets an admin session, so accept a valid operator PIN cookie too.
+function requireAdminOrOperatorApiSession(req, res) {
+  if (hasValidAdminSession(req)) return true;
+  const operatorCode = getOperatorCodeFromCookie(req);
+  if (operatorCode && isOperatorPinValid(operatorCode)) return true;
+  res.status(401).json({ ok: false, error: 'Admin or operator login required.' });
+  return false;
+}
+
 function escapeHtml(value) {
   return String(value || '')
     .replace(/&/g, '&amp;')
@@ -4719,7 +4729,7 @@ app.get('/api/admin/audit-log', (req, res) => {
 
 // V16: Import a song from an external URL (resursecrestine.ro Opensong XML)
 app.post('/api/songs/import-url', async (req, res) => {
-  if (!requireAdminApiSession(req, res)) return;
+  if (!requireAdminOrOperatorApiSession(req, res)) return;
   const { url } = req.body || {};
   if (!url || typeof url !== 'string') {
     return res.status(400).json({ ok: false, error: 'Missing url in request body' });
@@ -4735,7 +4745,7 @@ app.post('/api/songs/import-url', async (req, res) => {
 });
 
 app.post('/api/songs/search', async (req, res) => {
-  if (!requireAdminApiSession(req, res)) return;
+  if (!requireAdminOrOperatorApiSession(req, res)) return;
   const { query } = req.body || {};
   if (!query || typeof query !== 'string') {
     return res.status(400).json({ ok: false, error: 'Missing query in request body' });

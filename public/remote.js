@@ -10,6 +10,7 @@ const state = {
   availableLanguages: {},
   access: null,
   globalSongLibrary: [],
+  pinnedTextLibrary: [],
   glossaryOpen: false,
   liveAudio: {
     running: false,
@@ -51,6 +52,29 @@ function escapeHtml(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function escapeHtmlWithBreaks(value) {
+  return escapeHtml(value).replace(/\n/g, '<br>');
+}
+
+// V19: case + diacritic-insensitive search (RO ăâîșț etc.), mirrors app.js normalizeForSearch.
+function normalizeForSearch(str) {
+  if (!str) return '';
+  return String(str).toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '');
+}
+
+// V19: song-block "already displayed" tracking for the live song.
+let remoteDisplayedSongBlocks = new Set();
+let remoteCurrentSongTitle = '';
+
+function switchRemoteTab(tab) {
+  document.querySelectorAll('.top-nav-btn[data-tab]').forEach((b) => {
+    b.classList.toggle('active', b.dataset.tab === tab);
+  });
+  document.querySelectorAll('.tab-panel').forEach((panel) => {
+    panel.classList.toggle('active', panel.id === `tab-${tab}`);
+  });
 }
 
 function setStatus(text) {
@@ -226,33 +250,180 @@ function openRemoteMainScreen() {
   setStatus('Main screen opened. Move that tab to the projector if needed.');
 }
 
-function filterAndSortRemoteLibrary(items = []) {
-  const query = ($('remoteSongLibrarySearch')?.value || '').trim().toLowerCase();
-  const sortMode = $('remoteSongLibrarySort')?.value || 'az';
+// V19: shared diacritic-insensitive filter + sort for the library lists.
+function filterAndSortRemoteList(items, searchId, sortId) {
+  const query = normalizeForSearch(($(searchId)?.value || '').trim());
+  const sortMode = $(sortId)?.value || 'az';
   return (Array.isArray(items) ? items : [])
-    .filter((item) => String(item.title || '').toLowerCase().includes(query))
+    .filter((item) => {
+      if (!query) return true;
+      return normalizeForSearch(item.title).includes(query)
+        || normalizeForSearch(item.text).includes(query);
+    })
     .sort((a, b) => {
       if (sortMode === 'recent') {
-        return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+        return new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0);
       }
-      return String(a.title || '').localeCompare(String(b.title || ''));
+      const titleA = String(a.title || '').toLowerCase();
+      const titleB = String(b.title || '').toLowerCase();
+      return sortMode === 'za' ? titleB.localeCompare(titleA) : titleA.localeCompare(titleB);
     });
+}
+
+function findDuplicateRemoteLibrarySong(title) {
+  const norm = normalizeForSearch(String(title || '').trim());
+  if (!norm) return null;
+  return (state.globalSongLibrary || [])
+    .find((item) => normalizeForSearch(String(item?.title || '').trim()) === norm) || null;
 }
 
 function renderRemoteSongLibrary() {
   const box = $('remoteSongLibraryList');
   if (!box) return;
-  const items = filterAndSortRemoteLibrary(state.globalSongLibrary);
+  const items = filterAndSortRemoteList(state.globalSongLibrary, 'remoteSongLibrarySearch', 'remoteSongLibrarySort');
   if (!items.length) {
-    box.innerHTML = '<div class="muted">No songs available in church library.</div>';
+    box.innerHTML = '<div class="muted">No church songs saved yet.</div>';
     return;
   }
   box.innerHTML = items.map((item) => `
-    <button class="remote-library-pill" type="button" data-remote-song-library-action="open" data-remote-song-library-id="${item.id}">
-      <span>${escapeHtml(item.title || 'Untitled song')}</span>
-      <small>${escapeHtml(langLabel(item.sourceLang || state.currentEvent?.sourceLang || 'ro'))}</small>
-    </button>
+    <details class="event-card library-card-details">
+      <summary class="library-card-summary">
+        <span class="name">${escapeHtml(item.title || 'Untitled')}</span>
+      </summary>
+      <div class="library-card-body">
+        <div class="small"><b>Language:</b> ${escapeHtml(langLabel(item.sourceLang || state.currentEvent?.sourceLang || 'ro'))}</div>
+        <div class="library-card-actions">
+          <button class="btn btn-dark" type="button" data-remote-song-action="preview" data-remote-song-id="${item.id}">Preview</button>
+          <button class="btn btn-dark" type="button" data-remote-song-action="load" data-remote-song-id="${item.id}">Edit</button>
+          <button class="btn btn-primary" type="button" data-remote-song-action="send" data-remote-song-id="${item.id}">Send first verse</button>
+          <button class="btn btn-dark" type="button" data-remote-song-action="add" data-remote-song-id="${item.id}">Add to event</button>
+        </div>
+        <div class="library-preview hidden" data-remote-song-preview="${item.id}">
+          <pre class="library-preview-text">${escapeHtml(item.text || '')}</pre>
+        </div>
+      </div>
+    </details>
   `).join('');
+}
+
+function renderRemotePinnedTextLibrary() {
+  const box = $('remoteManualLibraryList');
+  if (!box) return;
+  const items = filterAndSortRemoteList(state.pinnedTextLibrary, 'remoteManualLibrarySearch', 'remoteManualLibrarySort');
+  if (!items.length) {
+    box.innerHTML = '<div class="muted">No pinned texts saved yet.</div>';
+    return;
+  }
+  box.innerHTML = items.map((item) => `
+    <details class="event-card library-card-details">
+      <summary class="library-card-summary">
+        <span class="name">${escapeHtml(item.title || 'Untitled')}</span>
+      </summary>
+      <div class="library-card-body">
+        <div class="small"><b>Language:</b> ${escapeHtml(langLabel(item.sourceLang || state.currentEvent?.sourceLang || 'ro'))}</div>
+        <div class="small">${escapeHtmlWithBreaks(String(item.text || '').slice(0, 200))}${String(item.text || '').length > 200 ? '...' : ''}</div>
+        <div class="library-card-actions">
+          <button class="btn btn-dark" type="button" data-remote-pinned-action="preview" data-remote-pinned-id="${item.id}">Preview</button>
+          <button class="btn btn-dark" type="button" data-remote-pinned-action="load" data-remote-pinned-id="${item.id}">Load in editor</button>
+          <button class="btn btn-primary" type="button" data-remote-pinned-action="send" data-remote-pinned-id="${item.id}">Send to main screen</button>
+        </div>
+        <div class="library-preview hidden" data-remote-pinned-preview="${item.id}">
+          <pre class="library-preview-text">${escapeHtml(item.text || '')}</pre>
+        </div>
+      </div>
+    </details>
+  `).join('');
+}
+
+function renderRemoteSongHistory() {
+  const box = $('remoteSongHistoryList');
+  if (!box) return;
+  const items = Array.isArray(state.currentEvent?.songHistory) ? state.currentEvent.songHistory : [];
+  if (!items.length) {
+    box.innerHTML = '<div class="muted">Nothing sent yet.</div>';
+    return;
+  }
+  box.innerHTML = items.map((item) => {
+    const preview = String(item.source || '');
+    return `
+      <div class="history-item">
+        <div><b>${escapeHtml(item.title || 'Sent text')}</b> <span class="small">(${escapeHtml(item.kind || 'song')})</span></div>
+        <div class="small">${escapeHtmlWithBreaks(preview.slice(0, 220))}${preview.length > 220 ? '...' : ''}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderRemoteSongState() {
+  const songState = state.currentEvent?.songState || {};
+  const blocks = Array.isArray(songState.blocks) ? songState.blocks : [];
+  const labels = Array.isArray(songState.blockLabels) ? songState.blockLabels : [];
+  const currentIndex = Number.isInteger(songState.currentIndex) ? songState.currentIndex : -1;
+  const activeBlock = typeof songState.activeBlock === 'string' ? songState.activeBlock : '';
+  const sourceLang = songState.sourceLang || state.currentEvent?.sourceLang || 'ro';
+
+  // Reset the "already displayed" set when a different song goes live.
+  const incomingTitle = String(songState.title || '');
+  if (incomingTitle !== remoteCurrentSongTitle) {
+    remoteDisplayedSongBlocks = new Set();
+    remoteCurrentSongTitle = incomingTitle;
+  }
+  if (currentIndex >= 0) remoteDisplayedSongBlocks.add(currentIndex);
+
+  const summaryEl = $('remoteSongSummary');
+  if (summaryEl) {
+    const libraryCount = Array.isArray(state.globalSongLibrary) ? state.globalSongLibrary.length : 0;
+    const historyCount = Array.isArray(state.currentEvent?.songHistory) ? state.currentEvent.songHistory.length : 0;
+    summaryEl.textContent = `Saved: ${libraryCount} · History: ${historyCount} · Language: ${langLabel(sourceLang)}`;
+  }
+
+  const modeBadge = $('remoteSongModeBadge');
+  if (modeBadge) {
+    modeBadge.textContent = (state.currentEvent?.displayState?.mode === 'song') ? 'Song live' : 'Live';
+  }
+
+  const previewEl = $('remoteSongPreview');
+  if (previewEl) previewEl.textContent = activeBlock || 'Song text will appear here.';
+
+  const editBtn = $('remoteEditLiveVerseBtn');
+  if (editBtn) editBtn.hidden = !activeBlock;
+
+  renderRemoteSongJumpSelect();
+
+  const blocksEl = $('remoteSongBlocksList');
+  if (!blocksEl) return;
+  if (!blocks.length) {
+    blocksEl.innerHTML = '<div class="muted">Use Save in library or Send first verse.</div>';
+    return;
+  }
+  blocksEl.innerHTML = blocks.map((block, index) => {
+    const activeClass = index === currentIndex ? ' active' : '';
+    const displayedClass = remoteDisplayedSongBlocks.has(index) && index !== currentIndex ? ' already-displayed' : '';
+    const label = escapeHtml(labels[index] || `Verse ${index + 1}`);
+    const firstLine = String(block || '').split('\n')[0] || '';
+    const preview = firstLine.length > 80 ? `${firstLine.slice(0, 80)}...` : firstLine;
+    return `
+      <div class="song-section-item-wrap${activeClass}${displayedClass}">
+        <button class="history-item song-section-item${activeClass}${displayedClass}" type="button" data-remote-song-block-index="${index}">
+          <div class="entry-head">
+            <b>${label}</b>
+            <span class="small">${index === currentIndex ? 'Live now' : 'Click to send live'}</span>
+          </div>
+          <div class="small song-block-preview">${escapeHtml(preview)}</div>
+        </button>
+        <button class="btn btn-dark song-block-extend" type="button" data-remote-song-block-extend="${index}" aria-label="Show full verse">▾</button>
+        <div class="song-block-full" data-remote-song-block-full="${index}" hidden>${escapeHtmlWithBreaks(block)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function fillRemoteSongEditor(item) {
+  if ($('remoteSongTitle')) $('remoteSongTitle').value = item?.title || '';
+  if ($('remoteSongText')) $('remoteSongText').value = item?.text || '';
+  if ($('remoteSongSourceLang')) {
+    $('remoteSongSourceLang').value = item?.sourceLang || state.currentEvent?.sourceLang || 'ro';
+  }
 }
 
 function renderRemoteSongJumpSelect() {
@@ -300,7 +471,8 @@ function populateRemoteLanguageSelects() {
   const available = Object.entries(state.availableLanguages || {});
   const songLangSelect = $('remoteSongSourceLang');
   const glossaryLangSelect = $('remoteGlossaryLang');
-  [songLangSelect, glossaryLangSelect].forEach((select) => {
+  const pinnedLangSelect = $('remotePinnedSourceLang');
+  [songLangSelect, glossaryLangSelect, pinnedLangSelect].forEach((select) => {
     if (!select) return;
     const currentValue = select.value;
     select.innerHTML = available.map(([code, label]) => `<option value="${code}">${label}</option>`).join('');
@@ -531,6 +703,18 @@ async function loadRemoteSongLibrary() {
   }
 }
 
+async function loadRemotePinnedTextLibrary() {
+  try {
+    const res = await fetch('/api/pinned-text-library');
+    const data = await res.json();
+    state.pinnedTextLibrary = data.pinnedTextLibrary || [];
+    renderRemotePinnedTextLibrary();
+  } catch (_) {
+    const box = $('remoteManualLibraryList');
+    if (box) box.innerHTML = '<div class="muted">Could not load pinned text library.</div>';
+  }
+}
+
 function refreshRemoteUi() {
   const displayState = state.currentEvent?.displayState || {};
   const activeMode = displayState.blackScreen ? 'blank' : (displayState.mode || 'auto');
@@ -555,14 +739,12 @@ function refreshRemoteUi() {
   const shortcuts = $('remoteShortcuts');
   const presetsList = $('remotePresetsList');
   const mainScreenPanel = $('remoteMainScreenPanel');
-  const songPanel = $('remoteSongJumpBtn')?.closest('.panel');
-  const fallbackSongPanel = $('remoteSongJumpSelect')?.closest('.panel');
   const presetsPanel = presetsList?.closest('.panel');
-  const songEditorPanel = $('remoteSongEditorPanel');
-  const churchLibraryPanel = $('remoteChurchLibraryPanel');
   const glossaryPanel = $('remoteGlossaryPanel');
   const liveAudioPanel = $('remoteLiveAudioPanel');
   const openMainScreenBtn = $('remoteOpenMainScreenBtn');
+  const songTabBtn = $('remoteSongTabBtn');
+  const pinnedTextPanel = $('remotePinnedTextPanel');
   if (mainScreenPanel) mainScreenPanel.hidden = !mainScreenAllowed;
   if (liveAudioPanel) liveAudioPanel.hidden = !mainScreenAllowed;
   if (openMainScreenBtn) {
@@ -578,19 +760,25 @@ function refreshRemoteUi() {
     const wrapper = dualToggle.closest('.info-card');
     if (wrapper) wrapper.hidden = !mainScreenAllowed;
   }
-  if (songPanel || fallbackSongPanel) (songPanel || fallbackSongPanel).hidden = !songAllowed;
   if (presetsPanel) presetsPanel.hidden = !mainScreenAllowed;
-  if (churchLibraryPanel) churchLibraryPanel.hidden = !songAllowed;
-  if (songEditorPanel) songEditorPanel.hidden = !songAllowed;
   if (glossaryPanel) glossaryPanel.hidden = !glossaryAllowed;
+  // V19: the whole Song tab is gated by the 'song' permission; pinned-text sending
+  // needs 'main_screen'. If the operator loses access to the active tab, fall back.
+  if (songTabBtn) songTabBtn.hidden = !songAllowed;
+  if (pinnedTextPanel) pinnedTextPanel.hidden = !mainScreenAllowed;
+  if (!songAllowed && $('tab-song')?.classList.contains('active')) {
+    switchRemoteTab('live-control');
+  }
   updateHeader();
   populateRemoteLanguageSelects();
   updateRemoteTextScaleDisplay();
   updateRemoteGlossaryMode();
   syncGlossaryToggle();
   renderRemoteSimplePreviews();
-  renderRemoteSongJumpSelect();
+  renderRemoteSongState();
   renderRemoteSongLibrary();
+  renderRemotePinnedTextLibrary();
+  renderRemoteSongHistory();
   renderRemoteLiveAudioState();
   if (mainScreenAllowed) {
     renderQuickLanguages();
@@ -651,6 +839,7 @@ socket.on('joined_event', ({ role, event, access }) => {
   clearRemoteSongEditor();
   refreshRemoteUi();
   loadRemoteSongLibrary();
+  loadRemotePinnedTextLibrary();
   setStatus(access?.operator?.name ? `Remote control connected as ${access.operator.name}.` : 'Remote control connected.');
 });
 socket.on('active_event_changed', async ({ eventId }) => {
@@ -694,6 +883,12 @@ socket.on('song_clear', () => {
   if (!state.currentEvent) return;
   state.currentEvent.songState = null;
   refreshRemoteUi();
+});
+socket.on('song_history_updated', ({ songHistory }) => {
+  if (!state.currentEvent) return;
+  state.currentEvent.songHistory = songHistory || [];
+  renderRemoteSongHistory();
+  renderRemoteSongState();
 });
 socket.on('display_presets_updated', ({ presets }) => {
   if (!state.currentEvent) return;
@@ -996,56 +1191,356 @@ $('remoteGlossaryToggleBtn')?.addEventListener('click', () => {
   syncGlossaryToggle();
 });
 
-$('remoteSongLibrarySearch').addEventListener('input', renderRemoteSongLibrary);
-$('remoteSongLibrarySort').addEventListener('change', renderRemoteSongLibrary);
-$('remoteSongLibraryList').addEventListener('click', async (e) => {
-  const btn = e.target.closest('button[data-remote-song-library-action]');
+document.querySelectorAll('.top-nav-btn[data-tab]').forEach((btn) => {
+  btn.addEventListener('click', () => switchRemoteTab(btn.dataset.tab));
+});
+
+$('remoteSongLibrarySearch')?.addEventListener('input', renderRemoteSongLibrary);
+$('remoteSongLibrarySort')?.addEventListener('change', renderRemoteSongLibrary);
+$('remoteManualLibrarySearch')?.addEventListener('input', renderRemotePinnedTextLibrary);
+$('remoteManualLibrarySort')?.addEventListener('change', renderRemotePinnedTextLibrary);
+
+$('remoteSongLibraryList')?.addEventListener('click', async (e) => {
+  if (e.target.closest('.library-card-summary')) return;
+  const btn = e.target.closest('button[data-remote-song-action]');
   if (!btn) return;
-  const item = (state.globalSongLibrary || []).find((entry) => entry.id === btn.getAttribute('data-remote-song-library-id'));
+  const action = btn.getAttribute('data-remote-song-action');
+  const songId = btn.getAttribute('data-remote-song-id');
+  const item = (state.globalSongLibrary || []).find((entry) => entry.id === songId);
   if (!item) return;
-  const action = btn.getAttribute('data-remote-song-library-action');
-  if (action === 'open') {
-    const current = btn.closest('.remote-library-pill');
-    const wasOpen = current?.classList.contains('is-open');
-    document.querySelectorAll('.remote-library-pill.is-open').forEach((pill) => {
-      if (pill !== current) pill.classList.remove('is-open');
-    });
-    document.querySelectorAll('.remote-library-actions').forEach((actions) => actions.remove());
-    current?.classList.toggle('is-open', !wasOpen);
-    if (current && !wasOpen) {
-      current.insertAdjacentHTML('afterend', `
-        <div class="remote-library-actions" data-library-actions-for="${item.id}">
-          <div class="small">${escapeHtml(String(item.text || '').slice(0, 180))}${String(item.text || '').length > 180 ? '...' : ''}</div>
-          <div class="button-row compact-row">
-            <button class="btn btn-dark" type="button" data-remote-song-library-action="load" data-remote-song-library-id="${item.id}">Load in editor</button>
-            <button class="btn btn-primary" type="button" data-remote-song-library-action="send" data-remote-song-library-id="${item.id}">Send first verse</button>
-          </div>
-        </div>
-      `);
+  if (action === 'preview') {
+    const previewEl = document.querySelector(`[data-remote-song-preview="${songId}"]`);
+    if (previewEl) {
+      previewEl.classList.toggle('hidden');
+      btn.textContent = previewEl.classList.contains('hidden') ? 'Preview' : 'Hide preview';
     }
     return;
   }
   if (action === 'load') {
-    if ($('remoteSongTitle')) $('remoteSongTitle').value = item.title || '';
-    if ($('remoteSongText')) $('remoteSongText').value = item.text || '';
-    if ($('remoteSongSourceLang')) $('remoteSongSourceLang').value = item.sourceLang || state.currentEvent?.sourceLang || 'ro';
-    setStatus('Song loaded into editor.');
+    fillRemoteSongEditor(item);
+    setStatus('Loaded from church library into the editor.');
     return;
   }
+  if (action === 'send') {
+    try {
+      await post(`/api/events/${state.eventId}/song/load`, {
+        title: item.title || '',
+        text: item.text || '',
+        labels: item.labels || [],
+        sourceLang: item.sourceLang || state.currentEvent?.sourceLang || 'ro'
+      });
+      btn.closest('.library-card-details')?.removeAttribute('open');
+      setStatus('Song loaded from church library — first verse is live.');
+    } catch (err) {
+      setStatus(err.message);
+    }
+    return;
+  }
+  if (action === 'add') {
+    if (!state.eventId) return setStatus('No live event connected.');
+    try {
+      const res = await fetch(
+        `/api/events/${state.eventId}/global-song-library/${songId}/add-to-event`,
+        eventCodeOptions('POST', { targetEventId: state.eventId })
+      );
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Could not add song to event.');
+      setStatus(`Added "${item.title || 'song'}" to this event's song library.`);
+    } catch (err) {
+      setStatus(err.message);
+    }
+  }
+});
+
+$('remoteManualLibraryList')?.addEventListener('click', async (e) => {
+  if (e.target.closest('.library-card-summary')) return;
+  const btn = e.target.closest('button[data-remote-pinned-action]');
+  if (!btn) return;
+  const action = btn.getAttribute('data-remote-pinned-action');
+  const itemId = btn.getAttribute('data-remote-pinned-id');
+  const item = (state.pinnedTextLibrary || []).find((entry) => entry.id === itemId);
+  if (!item) return;
+  if (action === 'preview') {
+    const previewEl = document.querySelector(`[data-remote-pinned-preview="${itemId}"]`);
+    if (previewEl) {
+      previewEl.classList.toggle('hidden');
+      btn.textContent = previewEl.classList.contains('hidden') ? 'Preview' : 'Hide preview';
+    }
+    return;
+  }
+  if (action === 'load') {
+    if ($('remotePinnedTitle')) $('remotePinnedTitle').value = item.title || '';
+    if ($('remotePinnedText')) $('remotePinnedText').value = item.text || '';
+    if ($('remotePinnedSourceLang')) {
+      $('remotePinnedSourceLang').value = item.sourceLang || state.currentEvent?.sourceLang || 'ro';
+    }
+    setStatus('Pinned text loaded into the editor.');
+    return;
+  }
+  if (action === 'send') {
+    try {
+      await post(`/api/events/${state.eventId}/display/manual`, {
+        title: item.title || '',
+        text: item.text || '',
+        sourceLang: item.sourceLang || state.currentEvent?.sourceLang || 'ro'
+      });
+      setStatus('Pinned text sent to the main screen.');
+    } catch (err) {
+      setStatus(err.message);
+    }
+  }
+});
+
+$('remotePinnedSendBtn')?.addEventListener('click', async () => {
+  const title = $('remotePinnedTitle')?.value.trim() || '';
+  const text = $('remotePinnedText')?.value.trim() || '';
+  const sourceLang = $('remotePinnedSourceLang')?.value || state.currentEvent?.sourceLang || 'ro';
+  if (!text) return setStatus('Add pinned text first.');
   try {
-    const res = await fetch(`/api/events/${state.eventId}/song/load`, eventCodeOptions('POST', {
-      title: item.title || '',
-      text: item.text || '',
-      labels: item.labels || [],
-      sourceLang: item.sourceLang || state.currentEvent?.sourceLang || 'ro'
-    }));
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error || 'Could not send song.');
-    state.currentEvent = data.event || state.currentEvent;
-    refreshRemoteUi();
-    setStatus('Song loaded from church library.');
+    await post(`/api/events/${state.eventId}/display/manual`, { title, text, sourceLang });
+    setStatus('Pinned text sent to the main screen.');
   } catch (err) {
     setStatus(err.message);
+  }
+});
+
+$('remoteSongBlocksList')?.addEventListener('click', async (e) => {
+  const extendBtn = e.target.closest('[data-remote-song-block-extend]');
+  if (extendBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+    const idx = extendBtn.dataset.remoteSongBlockExtend;
+    const fullEl = document.querySelector(`[data-remote-song-block-full="${idx}"]`);
+    if (fullEl) {
+      const hidden = fullEl.hasAttribute('hidden');
+      if (hidden) {
+        fullEl.removeAttribute('hidden');
+        extendBtn.textContent = '▴';
+      } else {
+        fullEl.setAttribute('hidden', '');
+        extendBtn.textContent = '▾';
+      }
+    }
+    return;
+  }
+  const btn = e.target.closest('button[data-remote-song-block-index]');
+  if (!btn) return;
+  const index = Number(btn.getAttribute('data-remote-song-block-index'));
+  if (!Number.isInteger(index)) return;
+  try {
+    await post(`/api/events/${state.eventId}/song/show/${index}`);
+    setStatus('Selected verse sent live.');
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
+$('remoteSongClearLiveBtn')?.addEventListener('click', async () => {
+  try {
+    await post(`/api/events/${state.eventId}/song/clear`);
+    setStatus('Song cleared from the main screen.');
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
+$('remoteSongBlackBtn')?.addEventListener('click', async () => {
+  try {
+    await post(`/api/events/${state.eventId}/display/blank`);
+    setStatus('Main screen set to black screen.');
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
+function openRemoteEditVerseModal() {
+  const songState = state.currentEvent?.songState;
+  if (!songState || !songState.activeBlock) {
+    setStatus('No active verse to edit.');
+    return;
+  }
+  if ($('remoteEditVerseText')) $('remoteEditVerseText').value = songState.activeBlock;
+  const modal = $('remoteEditVerseModal');
+  if (modal) modal.hidden = false;
+  setTimeout(() => $('remoteEditVerseText')?.focus(), 50);
+}
+
+function closeRemoteEditVerseModal() {
+  const modal = $('remoteEditVerseModal');
+  if (modal) modal.hidden = true;
+}
+
+async function saveRemoteEditedVerse(updateLibrary) {
+  const newText = $('remoteEditVerseText')?.value.trim() || '';
+  if (!newText) return setStatus('Verse text cannot be empty.');
+  if (updateLibrary && !window.confirm(
+    'This will update the original song in the church library permanently. Continue?'
+  )) return;
+  try {
+    const res = await fetch(`/api/events/${state.eventId}/song/edit-active-block`, eventCodeOptions('POST', {
+      newText,
+      updateLibrary: !!updateLibrary
+    }));
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Could not save edited verse.');
+    if (data.event) state.currentEvent = data.event;
+    if (data.songState && state.currentEvent) state.currentEvent.songState = data.songState;
+    if (Array.isArray(data.globalSongLibrary)) state.globalSongLibrary = data.globalSongLibrary;
+    closeRemoteEditVerseModal();
+    refreshRemoteUi();
+    renderRemoteSongLibrary();
+    setStatus(updateLibrary ? 'Verse updated and saved to the library.' : 'Verse updated for this event.');
+  } catch (err) {
+    setStatus(err.message);
+  }
+}
+
+$('remoteEditLiveVerseBtn')?.addEventListener('click', openRemoteEditVerseModal);
+$('remoteCancelEditVerseBtn')?.addEventListener('click', closeRemoteEditVerseModal);
+$('remoteSaveEditVerseBtn')?.addEventListener('click', () => saveRemoteEditedVerse(false));
+$('remoteSaveEditVerseLibraryBtn')?.addEventListener('click', () => saveRemoteEditedVerse(true));
+document.querySelectorAll('[data-remote-edit-verse-close]').forEach((el) => {
+  el.addEventListener('click', closeRemoteEditVerseModal);
+});
+
+async function importRemoteSongFromUrl(url) {
+  const res = await fetch('/api/songs/import-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url })
+  });
+  const data = await res.json();
+  if (!res.ok || !data.ok) throw new Error(data.error || 'Import failed');
+  const dup = findDuplicateRemoteLibrarySong(data.song.title);
+  if (dup) {
+    const ok = window.confirm(
+      `Cântarea există deja în Library: "${dup.title}".\n\nContinui oricum și suprascrii editorul?`
+    );
+    if (!ok) {
+      const err = new Error(`Anulat — cântarea există deja: "${dup.title}"`);
+      err.cancelled = true;
+      throw err;
+    }
+  }
+  if ($('remoteSongTitle') && data.song.title) $('remoteSongTitle').value = data.song.title;
+  if ($('remoteSongText') && data.song.text) $('remoteSongText').value = data.song.text;
+  return data.song;
+}
+
+$('remoteImportUrlBtn')?.addEventListener('click', async () => {
+  const input = $('remoteImportUrlInput');
+  const status = $('remoteImportUrlStatus');
+  const resultsEl = $('remoteImportUrlResults');
+  const btn = $('remoteImportUrlBtn');
+  const value = (input?.value || '').trim();
+  if (!value) {
+    if (status) {
+      status.textContent = 'Introdu un URL sau cuvinte cheie pentru căutare.';
+      status.style.color = '#f80';
+    }
+    return;
+  }
+  const isUrl = /^https?:\/\//i.test(value);
+  if (status) {
+    status.textContent = isUrl ? 'Se importă...' : 'Se caută...';
+    status.style.color = '';
+  }
+  if (resultsEl) resultsEl.innerHTML = '';
+  if (btn) btn.disabled = true;
+  try {
+    if (isUrl) {
+      const song = await importRemoteSongFromUrl(value);
+      if (status) {
+        status.textContent = `Importat: "${song.title}" (${song.sourceProvider || 'URL'})`;
+        status.style.color = '#0c0';
+      }
+      if (input) input.value = '';
+    } else {
+      const res = await fetch('/api/songs/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: value })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Search failed');
+      if (!data.results || !data.results.length) {
+        if (status) {
+          status.textContent = `Niciun rezultat pentru "${value}".`;
+          status.style.color = '#f80';
+        }
+        return;
+      }
+      if (status) {
+        status.textContent = `${data.results.length} rezultate pentru "${value}":`;
+        status.style.color = '#0c0';
+      }
+      if (resultsEl) {
+        resultsEl.innerHTML = data.results.map((item) => `
+          <div class="import-result-row" style="display:flex; gap:8px; align-items:center; padding:6px 8px; border-bottom:1px solid rgba(255,255,255,0.08);">
+            <div style="flex:1; min-width:0;">
+              <div style="font-weight:600;">${escapeHtml(item.title)}</div>
+              <div class="muted small">${escapeHtml(item.author || 'Anonim')}</div>
+            </div>
+            <button class="btn btn-dark" type="button" data-remote-import-result-url="${escapeHtml(item.url)}">Import</button>
+          </div>
+        `).join('');
+      }
+    }
+  } catch (err) {
+    if (status) {
+      if (err.cancelled) {
+        status.textContent = err.message;
+        status.style.color = '#f80';
+      } else {
+        status.textContent = `Eroare: ${err.message}`;
+        status.style.color = '#f00';
+      }
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+});
+
+$('remoteImportUrlInput')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    $('remoteImportUrlBtn')?.click();
+  }
+});
+
+$('remoteImportUrlResults')?.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-remote-import-result-url]');
+  if (!btn) return;
+  const url = btn.dataset.remoteImportResultUrl;
+  const status = $('remoteImportUrlStatus');
+  const input = $('remoteImportUrlInput');
+  const resultsEl = $('remoteImportUrlResults');
+  if (status) {
+    status.textContent = 'Se importă rezultatul selectat...';
+    status.style.color = '';
+  }
+  btn.disabled = true;
+  btn.textContent = '...';
+  try {
+    const song = await importRemoteSongFromUrl(url);
+    if (status) {
+      status.textContent = `Importat: "${song.title}"`;
+      status.style.color = '#0c0';
+    }
+    if (input) input.value = '';
+    if (resultsEl) resultsEl.innerHTML = '';
+  } catch (err) {
+    if (status) {
+      if (err.cancelled) {
+        status.textContent = err.message;
+        status.style.color = '#f80';
+      } else {
+        status.textContent = `Eroare la import: ${err.message}`;
+        status.style.color = '#f00';
+      }
+    }
+    btn.disabled = false;
+    btn.textContent = 'Import';
   }
 });
 
@@ -1094,6 +1589,7 @@ window.addEventListener('load', async () => {
   updateRemoteGlossaryMode();
   syncGlossaryToggle();
   refreshRemoteUi();
+  loadRemotePinnedTextLibrary();
   await join();
 });
 
