@@ -4,7 +4,9 @@
   "private": true,
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "check": "node scripts/check-syntax.js",
+    "audit:high": "npm audit --audit-level=high"
   },
   "dependencies": {
     "compression": "^1.8.1",

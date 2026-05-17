@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    name: Lint, audit, syntax
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Security audit
+        run: npm audit --audit-level=high
+
+      - name: Syntax check server
+        run: node --check server.js
+
+      - name: Syntax check routes
+        run: |
+          for f in routes/*.js; do
+            echo "Checking $f"
+            node --check "$f"
+          done
+
+      - name: Syntax check socket
+        run: |
+          for f in socket/*.js; do
+            echo "Checking $f"
+            node --check "$f"
+          done
+
+      - name: Syntax check lib
+        run: |
+          for f in lib/*.js; do
+            echo "Checking $f"
+            node --check "$f"
+          done
+
+      - name: Syntax check public scripts
+        run: |
+          for f in public/*.js; do
+            echo "Checking $f"
+            node --check "$f"
+          done
+
+      - name: Syntax check utility scripts
+        run: |
+          if [ -d "scripts" ]; then
+            for f in scripts/*.js; do
+              echo "Checking $f"
+              node --check "$f"
+            done
+          fi
