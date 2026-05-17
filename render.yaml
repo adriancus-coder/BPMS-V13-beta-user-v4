@@ -75,7 +75,7 @@ services:
       - key: DEFAULT_ORG_PLAN
         value: internal
       - key: COMMERCIAL_MODE
-        value: 0
+        value: 1
 
       # ── Storage paths (DATA_DIR defaults to /var/data on Render; LOG_DIR defaults to ./logs) ─
       - key: DATA_DIR

@@ -79,8 +79,10 @@ let ADMIN_SESSION_SECRET = String(
   || ''
 ).trim();
 if (!ADMIN_SESSION_SECRET) {
-  if (COMMERCIAL_MODE) {
-    console.error('FATAL: ADMIN_SESSION_SECRET is not set. Refusing to start in COMMERCIAL_MODE without a configured session secret.');
+  const isProduction = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+  if (isProduction || COMMERCIAL_MODE) {
+    const reason = isProduction ? 'NODE_ENV=production' : 'COMMERCIAL_MODE=1';
+    console.error(`FATAL: ADMIN_SESSION_SECRET is not set. Refusing to start (${reason}).`);
     console.error('Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'base64\'))"');
     console.error('Then set ADMIN_SESSION_SECRET in your environment (e.g. Render Environment) and restart.');
     process.exit(1);
